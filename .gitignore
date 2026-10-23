@@ -1,0 +1,28 @@
+# Dependências e saídas de build
+node_modules
+dist
+dist-ssr
+dev-dist
+*.local
+*.tsbuildinfo
+
+# Variáveis de ambiente (só o modelo vai para o repositório)
+.env*
+!.env.example
+
+# Relatórios de testes
+test-results
+playwright-report
+coverage
+
+# Editores e sistema
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+npm-debug.log*

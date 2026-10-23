@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+@theme {
+  --color-creme: #F6F3EA;
+  --color-petroleo: #1D5C68;
+  --color-verde: #6E9A80;
+  --color-verde-folha: #7FB08C;
+  --color-amarelo: #F2B65A;
+  --color-laranja: #EE8B4E;
+  --color-azul-claro: #8EC3DE;
+  --color-azul-petroleo: #3A9E9A;
+  --color-azul-marinho: #33507A;
+  --color-verde-claro: #BFD9C5;
+
+  --font-titulo: "Prata", serif;
+  --font-texto: "Nunito Sans", sans-serif;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-creme);
+    color: var(--color-petroleo);
+    font-family: var(--font-texto);
+  }
+
+  /* A Prata só existe no peso normal; evita negrito simulado. */
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-titulo);
+    font-weight: 400;
+  }
+}
