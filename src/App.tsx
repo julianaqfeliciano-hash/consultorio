@@ -4,7 +4,9 @@ import { Layout } from './componentes/Layout';
 import { TelaAgenda } from './telas/agenda/TelaAgenda';
 import { TelaFinanceiro } from './telas/financeiro/TelaFinanceiro';
 import { TelaLogin } from './telas/login/TelaLogin';
+import { TelaConfiguracoes } from './telas/mais/TelaConfiguracoes';
 import { TelaMais } from './telas/mais/TelaMais';
+import { TelaParceiros } from './telas/mais/TelaParceiros';
 import { TelaPacientes } from './telas/pacientes/TelaPacientes';
 import { TelaRelatorios } from './telas/relatorios/TelaRelatorios';
 
@@ -23,7 +25,11 @@ export function RotasApp() {
           <Route path="pacientes" element={<TelaPacientes />} />
           <Route path="financeiro" element={<TelaFinanceiro />} />
           <Route path="relatorios" element={<TelaRelatorios />} />
-          <Route path="mais" element={<TelaMais />} />
+          <Route path="mais">
+            <Route index element={<TelaMais />} />
+            <Route path="configuracoes" element={<TelaConfiguracoes />} />
+            <Route path="parceiros" element={<TelaParceiros />} />
+          </Route>
           <Route path="*" element={<Navigate to="/agenda" replace />} />
         </Route>
       </Route>

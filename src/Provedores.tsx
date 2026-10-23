@@ -1,7 +1,7 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Autenticacao } from './dados/autenticacao';
-import { AutenticacaoProvider } from './dados/contexto-autenticacao';
+import { AutenticacaoProvider, useAutenticacao } from './dados/contexto-autenticacao';
 import { RepositorioProvider } from './dados/contexto';
 import type { Repositorio } from './dados/repositorio';
 
@@ -18,6 +18,25 @@ interface Props {
   /** Para os testes: erro vira erro na hora, sem esperar as tentativas automáticas. */
   semNovasTentativas?: boolean;
   children: ReactNode;
+}
+
+/**
+ * Quando a usuária sai (ou outra pessoa assume a sessão), esquece tudo que as consultas guardaram:
+ * dado de paciente não pode ficar na memória do aparelho depois do "Sair".
+ */
+function LimparCacheAoSair() {
+  const { usuario } = useAutenticacao();
+  const cliente = useQueryClient();
+  const anterior = useRef<string | null>(null);
+  const atual = usuario?.id ?? null;
+
+  useEffect(() => {
+    // Só conta quando havia alguém logada e agora é ninguém ou outra pessoa; quem ainda não entrou não deixou nada.
+    if (anterior.current !== null && anterior.current !== atual) cliente.clear();
+    anterior.current = atual;
+  }, [atual, cliente]);
+
+  return null;
 }
 
 /**
@@ -43,6 +62,7 @@ export function Provedores({
       <RepositorioProvider repositorio={repositorio}>
         {autenticacao ? (
           <AutenticacaoProvider autenticacao={autenticacao} modoDemonstracao={modoDemonstracao}>
+            <LimparCacheAoSair />
             {children}
           </AutenticacaoProvider>
         ) : (

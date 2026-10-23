@@ -1,6 +1,6 @@
-import type { ButtonHTMLAttributes } from 'react';
+import type { ComponentProps } from 'react';
 
-interface BotaoProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+interface BotaoProps extends ComponentProps<'button'> {
   /** `primario` (cheio) para a ação principal da tela; `secundario` (contorno) para as demais. */
   variante?: 'primario' | 'secundario';
 }
