@@ -36,6 +36,7 @@ Ele roda no **celular, no iPad e no notebook**, com os mesmos dados nos três.
 | Recibos | Não é obrigatório ter recibo de tudo. O sistema guarda os recibos que você emitir. |
 | Despesas | Registradas, com comprovante, e usadas nos relatórios e no livro-caixa. |
 | Código | Repositório próprio e privado no GitHub, separado dos vídeos da Brincário. |
+| Visual | Logo, cores e fontes do Kit de Identidade Visual Juliana Feliciano (§4.6). |
 
 ---
 
@@ -65,7 +66,7 @@ No celular, uma barra inferior com 5 abas. No iPad e no notebook, a mesma navega
   - situação (compareceu / faltou com aviso / faltou sem aviso / cancelada por mim / remarcar);
   - pagamento (pago / pendente), quando a sessão é cobrada individualmente;
   - registro da sessão (§7);
-  - marcação “sessão com os responsáveis”.
+  - marcação “Acompanhamento familiar” (sessão com os responsáveis).
 - Botão **“+”** para sessão avulsa (fora do horário fixo).
 - Botão **“Bloquear dias”** (férias, feriados).
 
@@ -94,6 +95,43 @@ No celular, uma barra inferior com 5 abas. No iPad e no notebook, a mesma navega
 - Modelos de documentos, parceiros, cópia de segurança, configurações
   (seus dados profissionais, valores padrão, mensagem do WhatsApp, tempo de bloqueio).
 
+### 4.6 Identidade visual
+O sistema segue o **Kit de Identidade Visual Juliana Feliciano** (guardado em `docs/marca/`).
+
+- **Logo** (a árvore-cérebro com a família, a pipa e o balanço): na tela de login, no topo do sistema,
+  no ícone do aplicativo (fundo creme) e no cabeçalho e marca-d’água dos documentos em PDF.
+  Arquivos em `public/marca/` (`logo.svg`, `logo.png`, `icone.svg`, `icone-180.png`, `icone-192.png`, `icone-512.png`).
+- **Fontes:** **Prata** para títulos e nome; **Nunito Sans** para textos e informações.
+- **Paleta:**
+
+  | Cor | Código | Uso no sistema |
+  |---|---|---|
+  | Creme | `#F6F3EA` | fundo das telas e do ícone |
+  | Petróleo | `#1D5C68` | textos principais, títulos, botões, barra de navegação |
+  | Verde | `#6E9A80` | confirmações (“compareceu”, “pago”) |
+  | Verde-folha | `#7FB08C` | detalhes |
+  | Amarelo | `#F2B65A` | **Avaliação psicológica** |
+  | Laranja | `#EE8B4E` | **Psicoterapia** |
+  | Azul-claro | `#8EC3DE` | **Acompanhamento familiar** |
+  | Azul-petróleo | `#3A9E9A` | destaques e links |
+  | Azul-marinho | `#33507A` | gráficos |
+
+- **Cores por tipo de atendimento**, como no kit: Avaliação (amarelo), Psicoterapia (laranja) e
+  Acompanhamento familiar (azul-claro). No sistema, a **sessão com os responsáveis** aparece com o nome
+  **“Acompanhamento familiar”**. Na agenda, cada sessão tem uma faixa lateral com a cor do tipo.
+- **Situações** (pago, devendo, faltou etc.) aparecem sempre com **texto e ícone**, nunca só pela cor.
+- **Papel timbrado dos PDFs**, igual ao modelo do kit:
+  - cabeçalho: logo + “Juliana Feliciano” (Prata) + “PSICÓLOGA INFANTIL · CRP 11/16479” + bolinhas coloridas, com linha embaixo;
+  - cidade e data à direita (“Fortaleza, … de … de …”); título centralizado em letras espaçadas; texto justificado;
+  - assinatura centralizada: linha, “Juliana Queiroz Feliciano”, “Psicóloga · CRP 11/16479”;
+  - marca-d’água da árvore, bem clara, no canto inferior direito;
+  - rodapé petróleo com a faixa de cores no topo (amarelo, laranja, azul-claro, azul-petróleo, verde-claro) e
+    telefone, Instagram, e-mail e endereço.
+- **Dados profissionais já preenchidos** nas configurações (editáveis):
+  Juliana Queiroz Feliciano (nome de exibição: Juliana Feliciano) · Psicóloga Infantil · CRP 11/16479 ·
+  (85) 98823-2033 · julianaqfeliciano@gmail.com · Av. Washington Soares, 855 – Sala 802, Fortaleza – CE ·
+  @julianaqfelicianopsi.
+
 ---
 
 ## 5. Regras da agenda
@@ -120,7 +158,7 @@ No celular, uma barra inferior com 5 abas. No iPad e no notebook, a mesma navega
 | Remarcada | Não — a cobrança fica na nova data |
 
 - **Remarcar:** a sessão original fica registrada como “remarcada” e uma nova sessão é criada na nova data, ligada à original.
-- **Sessão com os responsáveis:** conta e é cobrada como uma sessão normal.
+- **Acompanhamento familiar (sessão com os responsáveis):** conta e é cobrada como uma sessão normal.
 
 ### 5.3 Bloquear dias
 - Você escolhe um período e um motivo (ex.: “Férias”). As sessões já marcadas nesse período passam para
@@ -216,7 +254,7 @@ O modelo fica numa configuração do servidor e pode ser trocado por um mais eco
 4. **Contrato terapêutico / termo de consentimento** para os responsáveis — regra de faltas (falta sem aviso prévio é cobrada), forma de pagamento, sigilo, e autorização para uso de inteligência artificial na organização dos registros.
 
 **Como gerar:** escolher o modelo → o sistema preenche paciente, responsável, datas, seu nome e CRP →
-você edita o texto → gera o **PDF** → o PDF é salvo automaticamente na pasta do paciente como “documento emitido”.
+você edita o texto → gera o **PDF no papel timbrado** (§4.6) → o PDF é salvo automaticamente na pasta do paciente como “documento emitido”.
 
 O texto de cada modelo pode ser editado em **Mais → Modelos**, usando campos como `{paciente.nome}` e `{responsavel.nome}`.
 
