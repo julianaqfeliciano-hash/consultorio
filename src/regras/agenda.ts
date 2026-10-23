@@ -1,4 +1,5 @@
 import type {
+  Avaliacao,
   Bloqueio,
   DataISO,
   HorarioComPaciente,
@@ -36,6 +37,31 @@ export function numeroNaAvaliacao(sessoes: Sessao[], alvo: Sessao): number {
     (s) => s.avaliacaoId === alvo.avaliacaoId && s.situacao === 'compareceu' && Date.parse(s.inicio) < inicioAlvo,
   );
   return anteriores.length + 1;
+}
+
+/**
+ * Em que sessão da avaliação o paciente está: comparecimentos desta avaliação mais 1,
+ * sem passar do total previsto (a "sessão X de N" da ficha).
+ */
+export function sessaoAtualNaAvaliacao(sessoes: Sessao[], avaliacao: Avaliacao): number {
+  const realizadas = sessoes.filter((s) => s.avaliacaoId === avaliacao.id && s.situacao === 'compareceu').length;
+  return Math.min(realizadas + 1, avaliacao.sessoesPrevistas);
+}
+
+/**
+ * Divide as sessões de um paciente: as próximas (agendadas de `hoje` em diante, a mais próxima
+ * primeiro) e o histórico (todo o resto, o mais recente primeiro). O dia é o dia local do consultório.
+ */
+export function separarSessoesDoPaciente(
+  sessoes: Sessao[],
+  hoje: DataISO,
+): { proximas: Sessao[]; historico: Sessao[] } {
+  const porInicio = (a: Sessao, b: Sessao) => Date.parse(a.inicio) - Date.parse(b.inicio);
+  const ehProxima = (s: Sessao) => s.situacao === 'agendada' && dataLocal(s.inicio) >= hoje;
+  return {
+    proximas: sessoes.filter(ehProxima).sort(porInicio),
+    historico: sessoes.filter((s) => !ehProxima(s)).sort((a, b) => porInicio(b, a)),
+  };
 }
 
 /** Gera as sessões dos horários fixos entre `de` e `ate` (inclusive), ordenadas por início. */

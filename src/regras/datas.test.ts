@@ -5,6 +5,7 @@ import {
   diaDaSemana,
   diaPorExtenso,
   entre,
+  formatarData,
   hojeISO,
   horaLocal,
   inicioDaSemana,
@@ -47,6 +48,11 @@ describe('datas (fuso America/Sao_Paulo)', () => {
 
   it('diaPorExtenso usa o português do Brasil', () => {
     expect(diaPorExtenso('2026-11-03')).toBe('terça-feira, 03/11');
+  });
+
+  it('formatarData escreve dia/mês/ano', () => {
+    expect(formatarData('2026-11-03')).toBe('03/11/2026');
+    expect(formatarData('2027-01-09')).toBe('09/01/2027');
   });
 
   it('hojeISO usa o dia local de São Paulo', () => {

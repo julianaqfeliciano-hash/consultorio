@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type {
+  Avaliacao,
   Bloqueio,
   HorarioComPaciente,
   Sessao,
@@ -12,6 +13,8 @@ import {
   gerarOcorrencias,
   numeroNaAvaliacao,
   selecionarAgendadas,
+  sessaoAtualNaAvaliacao,
+  separarSessoesDoPaciente,
 } from './agenda';
 
 // Base: horário terça 14:00, 50 min, válido desde 2026-10-01, paciente ativo em psicoterapia.
@@ -262,5 +265,72 @@ describe('selecionarAgendadas', () => {
     const tarde = [sessao({ id: 'x', inicio: '2026-11-04T02:30:00.000Z' })]; // 23:30 do dia 03 em São Paulo
     expect(selecionarAgendadas(tarde, { de: '2026-11-03', ate: '2026-11-03' })).toEqual(['x']);
     expect(selecionarAgendadas(tarde, { de: '2026-11-04' })).toEqual([]);
+  });
+});
+
+describe('sessaoAtualNaAvaliacao', () => {
+  const avaliacao: Avaliacao = { id: 'av1', pacienteId: 'p1', inicio: '2026-10-14', fim: null, sessoesPrevistas: 10, etapas: [] };
+  const base = { tipo: 'avaliacao' as const, avaliacaoId: 'av1' };
+
+  it('sem nenhuma sessão realizada, é a sessão 1', () => {
+    expect(sessaoAtualNaAvaliacao([], avaliacao)).toBe(1);
+  });
+
+  it('é o número de comparecimentos da avaliação mais 1', () => {
+    const sessoes = [
+      sessao({ id: 's1', ...base, situacao: 'compareceu' }),
+      sessao({ id: 's2', ...base, situacao: 'compareceu' }),
+      sessao({ id: 's3', ...base, situacao: 'compareceu' }),
+    ];
+    expect(sessaoAtualNaAvaliacao(sessoes, avaliacao)).toBe(4);
+  });
+
+  it('só conta comparecimentos desta avaliação', () => {
+    const sessoes = [
+      sessao({ id: 's1', ...base, situacao: 'compareceu' }),
+      sessao({ id: 's2', ...base, situacao: 'falta_sem_aviso' }),
+      sessao({ id: 's3', ...base, situacao: 'falta_com_aviso' }),
+      sessao({ id: 's4', ...base, situacao: 'cancelada' }),
+      sessao({ id: 's5', ...base, situacao: 'remarcada' }),
+      sessao({ id: 's6', ...base, situacao: 'agendada' }),
+      sessao({ id: 's7', tipo: 'avaliacao', avaliacaoId: 'outra', situacao: 'compareceu' }),
+      sessao({ id: 's8', tipo: 'psicoterapia', avaliacaoId: null, situacao: 'compareceu' }),
+    ];
+    expect(sessaoAtualNaAvaliacao(sessoes, avaliacao)).toBe(2);
+  });
+
+  it('não passa do total previsto', () => {
+    const sessoes = Array.from({ length: 12 }, (_, i) => sessao({ id: `s${i}`, ...base, situacao: 'compareceu' }));
+    expect(sessaoAtualNaAvaliacao(sessoes, avaliacao)).toBe(10);
+    expect(sessaoAtualNaAvaliacao(sessoes.slice(0, 9), avaliacao)).toBe(10);
+    expect(sessaoAtualNaAvaliacao(sessoes.slice(0, 3), { ...avaliacao, sessoesPrevistas: 3 })).toBe(3);
+  });
+});
+
+describe('separarSessoesDoPaciente', () => {
+  const sessoes: Sessao[] = [
+    sessao({ id: 'passada', inicio: '2026-10-27T17:00:00.000Z', situacao: 'compareceu' }),
+    sessao({ id: 'esquecida', inicio: '2026-10-30T17:00:00.000Z', situacao: 'agendada' }),
+    sessao({ id: 'hoje-tarde', inicio: '2026-11-03T02:00:00.000Z', situacao: 'agendada' }),
+    sessao({ id: 'proxima-2', inicio: '2026-11-10T17:00:00.000Z', situacao: 'agendada' }),
+    sessao({ id: 'proxima-1', inicio: '2026-11-03T17:00:00.000Z', situacao: 'agendada' }),
+    sessao({ id: 'cancelada-futura', inicio: '2026-11-17T17:00:00.000Z', situacao: 'cancelada' }),
+    sessao({ id: 'remarcada-futura', inicio: '2026-11-24T17:00:00.000Z', situacao: 'remarcada' }),
+  ];
+
+  it('próximas: agendadas de hoje em diante (dia local), da mais próxima para a mais distante', () => {
+    // 2026-11-03T02:00Z ainda é 02/11 (23:00) em São Paulo.
+    const { proximas } = separarSessoesDoPaciente(sessoes, '2026-11-02');
+    expect(proximas.map((s) => s.id)).toEqual(['hoje-tarde', 'proxima-1', 'proxima-2']);
+  });
+
+  it('histórico: o resto, da mais recente para a mais antiga', () => {
+    const { historico } = separarSessoesDoPaciente(sessoes, '2026-11-02');
+    expect(historico.map((s) => s.id)).toEqual(['remarcada-futura', 'cancelada-futura', 'esquecida', 'passada']);
+  });
+
+  it('o dia de hoje conta como próxima, o dia anterior não', () => {
+    const { proximas } = separarSessoesDoPaciente(sessoes, '2026-11-03');
+    expect(proximas.map((s) => s.id)).toEqual(['proxima-1', 'proxima-2']);
   });
 });

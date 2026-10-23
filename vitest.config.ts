@@ -17,6 +17,7 @@ export default defineConfig({
           globals: true,
           include: [
             'src/regras/**/*.test.ts',
+            'src/dominio/**/*.test.ts',
             'src/servicos/**/*.test.ts',
             'src/dados/**/*.test.ts',
             'supabase/tests/**/*.test.ts',

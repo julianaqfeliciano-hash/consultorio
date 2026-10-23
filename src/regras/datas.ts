@@ -55,6 +55,12 @@ export function inicioDaSemana(d: DataISO): DataISO {
   return format(startOfWeek(meiaNoite(d), { weekStartsOn: 1 }), 'yyyy-MM-dd');
 }
 
+/** Ex.: '03/11/2026'. */
+export function formatarData(d: DataISO): string {
+  const [ano, mes, dia] = d.split('-');
+  return `${dia}/${mes}/${ano}`;
+}
+
 /** Ex.: 'terça-feira, 03/11'. */
 export function diaPorExtenso(d: DataISO): string {
   return format(meiaNoite(d), 'EEEE, dd/MM', { locale: ptBR });

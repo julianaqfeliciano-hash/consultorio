@@ -7,6 +7,8 @@ import { TelaLogin } from './telas/login/TelaLogin';
 import { TelaConfiguracoes } from './telas/mais/TelaConfiguracoes';
 import { TelaMais } from './telas/mais/TelaMais';
 import { TelaParceiros } from './telas/mais/TelaParceiros';
+import { FichaPaciente } from './telas/pacientes/FichaPaciente';
+import { NovoPaciente } from './telas/pacientes/NovoPaciente';
 import { TelaPacientes } from './telas/pacientes/TelaPacientes';
 import { TelaRelatorios } from './telas/relatorios/TelaRelatorios';
 
@@ -22,7 +24,11 @@ export function RotasApp() {
         <Route element={<Layout />}>
           <Route index element={<Navigate to="/agenda" replace />} />
           <Route path="agenda" element={<TelaAgenda />} />
-          <Route path="pacientes" element={<TelaPacientes />} />
+          <Route path="pacientes">
+            <Route index element={<TelaPacientes />} />
+            <Route path="novo" element={<NovoPaciente />} />
+            <Route path=":id" element={<FichaPaciente />} />
+          </Route>
           <Route path="financeiro" element={<TelaFinanceiro />} />
           <Route path="relatorios" element={<TelaRelatorios />} />
           <Route path="mais">
