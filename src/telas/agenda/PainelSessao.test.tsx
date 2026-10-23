@@ -84,6 +84,38 @@ describe('PainelSessao', () => {
       expect(screen.getAllByRole('button', { pressed: true })).toHaveLength(1);
     });
 
+    it('"Voltar para Agendada" desfaz a marcação: o chip volta a "Agendada" e nenhum botão fica marcado', async () => {
+      const { usuaria, repositorio } = abrirPainel();
+      await usuaria.click(await screen.findByRole('button', { name: 'Faltou sem aviso' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Faltou sem aviso' })).toHaveAttribute('aria-pressed', 'true'));
+      expect(screen.getByText('Faltou sem aviso', { selector: 'span' })).toBeInTheDocument();
+
+      await usuaria.click(screen.getByRole('button', { name: 'Voltar para Agendada' }));
+
+      await waitFor(() => expect(screen.getByText('Agendada', { selector: 'span' })).toBeInTheDocument());
+      expect(screen.queryByRole('button', { pressed: true })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Voltar para Agendada' })).not.toBeInTheDocument();
+      expect((await sessaoGravada(repositorio))?.situacao).toBe('agendada');
+    });
+
+    it('"Voltar para Agendada" só aparece depois de marcada uma situação', async () => {
+      abrirPainel();
+
+      await screen.findByRole('button', { name: 'Compareceu' });
+      expect(screen.queryByRole('button', { name: 'Voltar para Agendada' })).not.toBeInTheDocument();
+    });
+
+    it('tocar de novo no botão já marcado não desmarca (só "Voltar para Agendada" desfaz)', async () => {
+      const { usuaria, repositorio } = abrirPainel();
+      await usuaria.click(await screen.findByRole('button', { name: 'Cancelar sessão' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Cancelar sessão' })).toHaveAttribute('aria-pressed', 'true'));
+
+      await usuaria.click(screen.getByRole('button', { name: 'Cancelar sessão' }));
+
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Cancelar sessão' })).toHaveAttribute('aria-pressed', 'true'));
+      expect((await sessaoGravada(repositorio))?.situacao).toBe('cancelada');
+    });
+
     it('o primeiro comparecimento define a data de entrada do paciente', async () => {
       const { usuaria, repositorio } = abrirPainel();
 
@@ -150,6 +182,7 @@ describe('PainelSessao', () => {
       expect(await screen.findByText('Remarcada para terça-feira, 17/11, 16:30')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Compareceu' })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Remarcar' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Voltar para Agendada' })).not.toBeInTheDocument();
     });
 
     it('pede data e hora, e não cria nada quando faltam', async () => {

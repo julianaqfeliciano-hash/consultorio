@@ -13,6 +13,12 @@ interface FolhaProps {
    * não serve. Sem isto, volta ao que tinha o foco na hora de abrir (se havia algum).
    */
   retornarFocoPara?: RefObject<HTMLElement | null>;
+  /**
+   * Folha travada não fecha: Esc e toque no fundo não têm efeito e "Fechar" fica desligado. Use enquanto uma
+   * gravação roda ou quando há outro diálogo por cima dela: nesse caso a folha também deixa de tratar o Tab
+   * e o Esc, que ficam por conta do diálogo de cima.
+   */
+  travada?: boolean;
   children: ReactNode;
 }
 
@@ -23,7 +29,7 @@ const FOCAVEIS = 'a[href], button:not(:disabled), input:not(:disabled), select:n
  * à direita a partir de 768 px. É um diálogo modal: o foco entra nela ao abrir e fica preso até fechar
  * (Esc, o botão "Fechar" ou um toque no fundo), quando volta a quem abriu. Fechada, não monta nada.
  */
-export function Folha({ aberta, onFechar, titulo, retornarFocoPara, children }: FolhaProps) {
+export function Folha({ aberta, onFechar, titulo, retornarFocoPara, travada = false, children }: FolhaProps) {
   const idTitulo = useId();
   const caixa = useRef<HTMLDivElement>(null);
 
@@ -38,7 +44,7 @@ export function Folha({ aberta, onFechar, titulo, retornarFocoPara, children }: 
   }, [aberta, retornarFocoPara]);
 
   useEffect(() => {
-    if (!aberta) return;
+    if (!aberta || travada) return;
     function aoTeclar(evento: KeyboardEvent) {
       if (evento.key === 'Escape') {
         onFechar();
@@ -65,7 +71,7 @@ export function Folha({ aberta, onFechar, titulo, retornarFocoPara, children }: 
     }
     document.addEventListener('keydown', aoTeclar);
     return () => document.removeEventListener('keydown', aoTeclar);
-  }, [aberta, onFechar]);
+  }, [aberta, travada, onFechar]);
 
   if (!aberta) return null;
 
@@ -73,7 +79,7 @@ export function Folha({ aberta, onFechar, titulo, retornarFocoPara, children }: 
     <div
       className="fixed inset-0 z-40 bg-petroleo/50"
       onClick={(evento) => {
-        if (evento.target === evento.currentTarget) onFechar();
+        if (evento.target === evento.currentTarget && !travada) onFechar();
       }}
     >
       <div
@@ -91,7 +97,7 @@ export function Folha({ aberta, onFechar, titulo, retornarFocoPara, children }: 
           <h2 id={idTitulo} className="text-2xl">
             {titulo}
           </h2>
-          <Botao variante="secundario" onClick={onFechar}>
+          <Botao variante="secundario" disabled={travada} onClick={onFechar}>
             <X aria-hidden="true" className="size-5" />
             Fechar
           </Botao>

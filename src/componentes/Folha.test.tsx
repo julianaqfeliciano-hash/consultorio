@@ -74,6 +74,36 @@ describe('Folha', () => {
     expect(aoFechar).toHaveBeenCalledTimes(1);
   });
 
+  it('travada, não fecha: Esc e toque no fundo não têm efeito e "Fechar" fica desligado', async () => {
+    const aoFechar = vi.fn();
+    render(<Folha aberta travada titulo="T" onFechar={aoFechar}>x</Folha>);
+    const usuaria = userEvent.setup();
+
+    await usuaria.keyboard('{Escape}');
+    await usuaria.click(screen.getByRole('dialog').parentElement as HTMLElement);
+
+    expect(aoFechar).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Fechar' })).toBeDisabled();
+  });
+
+  it('travada, deixa o Tab para o diálogo que está por cima dela', async () => {
+    render(
+      <>
+        <Folha aberta travada titulo="T" onFechar={() => {}}>
+          <button>Dentro da folha</button>
+        </Folha>
+        <button>Em outro diálogo</button>
+      </>,
+    );
+    const outro = screen.getByRole('button', { name: 'Em outro diálogo' });
+    outro.focus();
+    const tecla = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+
+    outro.dispatchEvent(tecla);
+
+    expect(tecla.defaultPrevented).toBe(false);
+  });
+
   it('ao abrir, o foco vai para dentro dela', async () => {
     render(<Exemplo />);
 

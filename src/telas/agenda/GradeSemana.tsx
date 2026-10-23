@@ -12,7 +12,7 @@ interface GradeSemanaProps {
   sessoes: SessaoComPaciente[] | undefined;
   /** No celular, o dia que está na tela. */
   diaSelecionado: DataISO;
-  /** 768 px ou mais: sete colunas em vez de um dia por vez. */
+  /** 1024 px ou mais: uma coluna por dia em vez de um dia por vez. */
   telaLarga: boolean;
   /** O que mostrar no lugar dos dias enquanto `sessoes` não chega (carregando ou falha). */
   semDados: ReactNode;
@@ -69,7 +69,7 @@ function ColunaDia({ dia, sessoes, hoje, aoAbrirSessao }: ColunaDiaProps) {
   return (
     <section aria-labelledby={idTitulo} className="flex min-w-0 flex-col gap-2">
       <div className="flex flex-wrap items-center gap-x-2">
-        <h2 id={idTitulo} className="text-lg first-letter:uppercase">
+        <h2 id={idTitulo} className="text-lg first-letter:uppercase lg:text-base">
           {diaPorExtenso(dia)}
         </h2>
         {dia === hoje && <span className="rounded-full bg-amarelo px-2 text-sm font-semibold">Hoje</span>}
@@ -90,8 +90,9 @@ function ColunaDia({ dia, sessoes, hoje, aoAbrirSessao }: ColunaDiaProps) {
 }
 
 /**
- * Os dias da semana (segunda a domingo). No celular: o seletor Seg…Sáb e um dia por vez; a partir de
- * 768 px: uma coluna por dia. O domingo só entra quando tem sessão (no celular, também quando é hoje ou o dia escolhido).
+ * Os dias da semana (segunda a domingo). Abaixo de 1024 px (celular e iPad na vertical): o seletor Seg…Sáb e um
+ * dia por vez; a partir de 1024 px: uma coluna por dia, todas visíveis (as colunas encolhem, sem rolagem lateral).
+ * O domingo só entra quando tem sessão (no seletor, também quando é hoje ou o dia escolhido).
  */
 export function GradeSemana({
   inicioSemana,
@@ -127,11 +128,6 @@ export function GradeSemana({
     );
   }
   if (sessoes === undefined) return semDados;
-  return (
-    <div className="overflow-x-auto">
-      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${dias.length}, minmax(9rem, 1fr))` }}>
-        {dias.map(coluna)}
-      </div>
-    </div>
-  );
+  // grid-cols-N = repeat(N, minmax(0, 1fr)): colunas iguais que encolhem até caber. Classes escritas por inteiro (Tailwind).
+  return <div className={`grid gap-1.5 ${dias.length === 7 ? 'grid-cols-7' : 'grid-cols-6'}`}>{dias.map(coluna)}</div>;
 }

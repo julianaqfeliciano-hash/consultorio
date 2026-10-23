@@ -22,10 +22,10 @@ async function abrirAgenda(repositorio: Repositorio = repositorioDemo()) {
 const dia = (data: string) => screen.findByRole('region', { name: new RegExp(data.replace('/', '\\/'), 'i') });
 const cartaoDe = (coluna: HTMLElement, paciente: string) => within(coluna).findByRole('button', { name: new RegExp(paciente) });
 
-/** Tela de celular: a consulta de largura mínima de 768 px não vale. */
-function simularCelular() {
+/** Uma tela com `largura` px: `matchMedia` responde às consultas "(min-width: Npx)" como um navegador. */
+function simularLargura(largura: number) {
   vi.stubGlobal('matchMedia', (consulta: string) => ({
-    matches: false,
+    matches: largura >= Number(/min-width:\s*(\d+)px/.exec(consulta)?.[1] ?? Infinity),
     media: consulta,
     onchange: null,
     addEventListener: () => {},
@@ -35,6 +35,8 @@ function simularCelular() {
     dispatchEvent: () => false,
   }));
 }
+
+const simularCelular = () => simularLargura(390);
 
 describe('TelaAgenda — semana', () => {
   it('mostra a sessão da Ana Clara na terça às 14:00 como "Psicoterapia" e "Agendada"', async () => {
@@ -246,19 +248,30 @@ describe('TelaAgenda — bloquear dias', () => {
     return { ...resultado, dialogo };
   }
 
-  async function preencher(dialogo: HTMLElement, usuaria: ReturnType<typeof userEvent.setup>, v: { inicio: string; fim: string; motivo: string }) {
+  type Usuaria = ReturnType<typeof userEvent.setup>;
+  const confirmacao = () => screen.findByRole('dialog', { name: 'Bloquear estes dias?' });
+
+  /** Preenche e toca em "Bloquear período". Não confirma: quem chama decide. */
+  async function preencher(dialogo: HTMLElement, usuaria: Usuaria, v: { inicio: string; fim: string; motivo: string }) {
     if (v.inicio) await usuaria.type(within(dialogo).getByLabelText('Início'), v.inicio);
     if (v.fim) await usuaria.type(within(dialogo).getByLabelText('Fim'), v.fim);
     if (v.motivo) await usuaria.type(within(dialogo).getByLabelText('Motivo'), v.motivo);
     await usuaria.click(within(dialogo).getByRole('button', { name: 'Bloquear período' }));
   }
 
+  /** Preenche e confirma a pergunta "Bloquear estes dias?". */
+  async function bloquear(dialogo: HTMLElement, usuaria: Usuaria, v: { inicio: string; fim: string; motivo: string }) {
+    await preencher(dialogo, usuaria, v);
+    await usuaria.click(within(await confirmacao()).getByRole('button', { name: 'Bloquear' }));
+  }
+
   it('10/11–14/11 "Feriado": avisa quantas foram canceladas e a semana seguinte mostra "Cancelada"', async () => {
     const { usuaria, dialogo, repositorio } = await abrirBloqueio();
 
-    await preencher(dialogo, usuaria, { inicio: '2026-11-10', fim: '2026-11-14', motivo: 'Feriado' });
+    await bloquear(dialogo, usuaria, { inicio: '2026-11-10', fim: '2026-11-14', motivo: 'Feriado' });
 
     expect(await within(dialogo).findByText('3 sessões canceladas.')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Bloquear estes dias?' })).not.toBeInTheDocument();
     expect(await repositorio.listarBloqueios()).toEqual([
       expect.objectContaining({ inicio: '2026-11-10', fim: '2026-11-14', motivo: 'Feriado' }),
     ]);
@@ -278,7 +291,7 @@ describe('TelaAgenda — bloquear dias', () => {
   it('com uma sessão: "1 sessão cancelada."', async () => {
     const { usuaria, dialogo } = await abrirBloqueio();
 
-    await preencher(dialogo, usuaria, { inicio: '2026-11-03', fim: '2026-11-03', motivo: 'Consulta' });
+    await bloquear(dialogo, usuaria, { inicio: '2026-11-03', fim: '2026-11-03', motivo: 'Consulta' });
 
     expect(await within(dialogo).findByText('1 sessão cancelada.')).toBeInTheDocument();
   });
@@ -286,28 +299,96 @@ describe('TelaAgenda — bloquear dias', () => {
   it('sem nenhuma sessão: "Nenhuma sessão cancelada."', async () => {
     const { usuaria, dialogo } = await abrirBloqueio();
 
-    await preencher(dialogo, usuaria, { inicio: '2026-11-07', fim: '2026-11-08', motivo: 'Fim de semana' });
+    await bloquear(dialogo, usuaria, { inicio: '2026-11-07', fim: '2026-11-08', motivo: 'Fim de semana' });
 
     expect(await within(dialogo).findByText('Nenhuma sessão cancelada.')).toBeInTheDocument();
   });
 
-  it('recusa fim antes do início e motivo em branco, sem bloquear nada', async () => {
+  it('antes de bloquear, pergunta: diz o período e que o que está agendado nele será cancelado', async () => {
+    const { usuaria, dialogo, repositorio } = await abrirBloqueio();
+
+    await preencher(dialogo, usuaria, { inicio: '2026-11-10', fim: '2026-11-14', motivo: 'Feriado' });
+
+    const pergunta = await confirmacao();
+    expect(pergunta).toHaveTextContent('10/11 a 14/11');
+    expect(pergunta).toHaveTextContent('Feriado');
+    expect(pergunta).toHaveTextContent('As sessões que ainda estiverem agendadas nesse período serão canceladas');
+    // Só perguntou: nada foi gravado.
+    expect(await repositorio.listarBloqueios()).toEqual([]);
+  });
+
+  it('"Cancelar" na pergunta não muda nada e mantém o formulário preenchido', async () => {
+    const { usuaria, dialogo, repositorio } = await abrirBloqueio();
+    await preencher(dialogo, usuaria, { inicio: '2026-11-10', fim: '2026-11-14', motivo: 'Feriado' });
+
+    await usuaria.click(within(await confirmacao()).getByRole('button', { name: 'Cancelar' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Bloquear estes dias?' })).not.toBeInTheDocument();
+    expect(within(dialogo).getByLabelText('Início')).toHaveValue('2026-11-10');
+    expect(within(dialogo).getByLabelText('Motivo')).toHaveValue('Feriado');
+    expect(await repositorio.listarBloqueios()).toEqual([]);
+    const semana = await repositorio.listarSessoes('2026-11-10', '2026-11-14');
+    expect(semana).toHaveLength(3);
+    expect(semana.every((s) => s.situacao === 'agendada')).toBe(true);
+  });
+
+  it('Esc na pergunta só cancela a pergunta: o formulário continua aberto', async () => {
+    const { usuaria, dialogo } = await abrirBloqueio();
+    await preencher(dialogo, usuaria, { inicio: '2026-11-10', fim: '2026-11-14', motivo: 'Feriado' });
+    await confirmacao();
+
+    await usuaria.keyboard('{Escape}');
+
+    expect(screen.queryByRole('dialog', { name: 'Bloquear estes dias?' })).not.toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Bloquear dias' })).toBeInTheDocument();
+  });
+
+  it('enquanto bloqueia, nada fecha: nem Esc, nem "Fechar", nem a pergunta', async () => {
+    const { usuaria, dialogo, repositorio } = await abrirBloqueio();
+    const salvar = repositorio.salvarBloqueio.bind(repositorio);
+    let liberar: () => void = () => {};
+    vi.spyOn(repositorio, 'salvarBloqueio').mockImplementation(
+      (b) => new Promise((resolve) => (liberar = () => resolve(salvar(b)))),
+    );
+    await preencher(dialogo, usuaria, { inicio: '2026-11-10', fim: '2026-11-14', motivo: 'Feriado' });
+    const pergunta = await confirmacao();
+
+    await usuaria.click(within(pergunta).getByRole('button', { name: 'Bloquear' }));
+    await usuaria.keyboard('{Escape}');
+
+    expect(within(pergunta).getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+    expect(within(pergunta).getByRole('button', { name: 'Bloquear' })).toBeDisabled();
+    expect(within(dialogo).getByRole('button', { name: 'Fechar' })).toBeDisabled();
+    expect(screen.getAllByRole('dialog')).toHaveLength(2);
+
+    liberar();
+    expect(await within(dialogo).findByText('3 sessões canceladas.')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Bloquear estes dias?' })).not.toBeInTheDocument();
+    expect(within(dialogo).getByRole('button', { name: 'Fechar' })).toBeEnabled();
+  });
+
+  it('recusa fim antes do início e motivo em branco, sem perguntar nem bloquear nada', async () => {
     const { usuaria, dialogo, repositorio } = await abrirBloqueio();
 
     await preencher(dialogo, usuaria, { inicio: '2026-11-14', fim: '2026-11-10', motivo: '' });
 
     expect(within(dialogo).getByText('A data de fim não pode ser antes do início.')).toBeInTheDocument();
     expect(within(dialogo).getByText('Informe o motivo, por exemplo: Férias.')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Bloquear estes dias?' })).not.toBeInTheDocument();
     expect(await repositorio.listarBloqueios()).toEqual([]);
   });
 
-  it('avisa quando não foi possível bloquear', async () => {
+  it('avisa na própria pergunta quando não foi possível bloquear, e deixa tentar de novo', async () => {
     const { usuaria, dialogo, repositorio } = await abrirBloqueio();
-    vi.spyOn(repositorio, 'salvarBloqueio').mockRejectedValue(new Error('sem rede'));
+    const salvar = repositorio.salvarBloqueio.bind(repositorio);
+    vi.spyOn(repositorio, 'salvarBloqueio').mockRejectedValueOnce(new Error('sem rede')).mockImplementation(salvar);
 
-    await preencher(dialogo, usuaria, { inicio: '2026-11-10', fim: '2026-11-14', motivo: 'Feriado' });
+    await bloquear(dialogo, usuaria, { inicio: '2026-11-10', fim: '2026-11-14', motivo: 'Feriado' });
 
-    expect(await within(dialogo).findByText('Não foi possível bloquear o período. Tente de novo.')).toBeInTheDocument();
+    const pergunta = await confirmacao();
+    expect(await within(pergunta).findByText('Não foi possível bloquear o período. Tente de novo.')).toBeInTheDocument();
+    await usuaria.click(within(pergunta).getByRole('button', { name: 'Bloquear' }));
+    expect(await within(dialogo).findByText('3 sessões canceladas.')).toBeInTheDocument();
   });
 });
 
@@ -378,6 +459,44 @@ describe('TelaAgenda — sessão avulsa', () => {
     expect(within(dialogo).getByText('Escolha o paciente.')).toBeInTheDocument();
     expect(within(dialogo).getByText('Informe a hora.')).toBeInTheDocument();
     expect(await repositorio.listarSessoes(HOJE, HOJE)).toEqual([]);
+  });
+});
+
+describe('TelaAgenda — largura da tela', () => {
+  it('a partir de 1024 px mostra os seis dias úteis em colunas que encolhem, sem rolagem interna', async () => {
+    simularLargura(1024);
+    const { container } = await abrirAgenda();
+
+    await dia('terça-feira, 03/11');
+    expect(screen.getAllByRole('region')).toHaveLength(6);
+    expect(screen.queryByRole('group', { name: 'Dias da semana' })).not.toBeInTheDocument();
+    // Seis colunas iguais que encolhem (grid-cols-6 = repeat(6, minmax(0, 1fr))) e nenhum contêiner com rolagem.
+    const grade = screen.getByRole('region', { name: /terça-feira, 03\/11/i }).parentElement as HTMLElement;
+    expect(grade.className).toContain('grid-cols-6');
+    expect(container.querySelector('[class*="overflow-x"]')).toBeNull();
+  });
+
+  it('na vertical do iPad (820 px) e em 1023 px, mostra um dia por vez, com o seletor e as setas', async () => {
+    for (const largura of [820, 1023]) {
+      simularLargura(largura);
+      const { unmount } = await abrirAgenda();
+
+      expect(await screen.findByRole('group', { name: 'Dias da semana' })).toBeInTheDocument();
+      expect(screen.getAllByRole('region')).toHaveLength(1);
+      expect(screen.getByRole('button', { name: 'Semana anterior' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Próxima semana' })).toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it('o painel da sessão continua lateral a partir de 768 px (a Folha não depende da grade)', async () => {
+    simularLargura(820);
+    const { usuaria } = await abrirAgenda();
+    await usuaria.click(await screen.findByRole('button', { name: 'Ter 03' }));
+
+    await usuaria.click(await cartaoDe(await dia('terça-feira, 03/11'), 'Ana Clara Souza'));
+
+    expect(await screen.findByRole('dialog', { name: 'Ana Clara Souza' })).toBeInTheDocument();
   });
 });
 

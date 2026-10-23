@@ -1,3 +1,4 @@
+import { Undo2 } from 'lucide-react';
 import { Aviso } from '../../componentes/Aviso';
 import { Botao } from '../../componentes/Botao';
 import { CaixaDeMarcar } from '../../componentes/CaixaDeMarcar';
@@ -75,6 +76,20 @@ export function PainelSessao({ sessao }: { sessao: SessaoComPaciente }) {
               );
             })}
           </div>
+          {sessao.situacao !== 'agendada' && (
+            // Para desfazer uma marcação feita por engano (a sessão ainda não aconteceu, por exemplo).
+            <Botao
+              variante="secundario"
+              aria-disabled={marcar.isPending || undefined}
+              onClick={() => {
+                if (!marcar.isPending) marcar.mutate({ sessao, situacao: 'agendada' });
+              }}
+              className="self-start"
+            >
+              <Undo2 aria-hidden="true" className="size-5 shrink-0" />
+              Voltar para Agendada
+            </Botao>
+          )}
           {marcar.isError && <Aviso tipo="erro">Não foi possível salvar. Tente de novo.</Aviso>}
         </fieldset>
       )}

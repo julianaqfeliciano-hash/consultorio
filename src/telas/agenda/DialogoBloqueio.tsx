@@ -2,10 +2,16 @@ import { useState, type FormEvent, type RefObject } from 'react';
 import { Aviso } from '../../componentes/Aviso';
 import { Botao } from '../../componentes/Botao';
 import { Campo } from '../../componentes/Campo';
+import { DialogoConfirmacao } from '../../componentes/DialogoConfirmacao';
 import { Folha } from '../../componentes/Folha';
 import { useBloquearPeriodo } from '../../dados/useAgenda';
 import { formatarData } from '../../regras/datas';
-import { descreverCanceladas, validarBloqueio, type ErrosBloqueio, type ValoresBloqueio } from '../../regras/formulariosAgenda';
+import {
+  descreverCanceladas,
+  validarBloqueio,
+  type ErrosBloqueio,
+  type ValoresBloqueio,
+} from '../../regras/formulariosAgenda';
 
 interface DialogoBloqueioProps {
   aberta: boolean;
@@ -13,8 +19,13 @@ interface DialogoBloqueioProps {
   retornarFocoPara: RefObject<HTMLElement | null>;
 }
 
-function FormularioBloqueio({ onFechar }: Pick<DialogoBloqueioProps, 'onFechar'>) {
-  const bloquear = useBloquearPeriodo();
+type DadosBloqueio = NonNullable<ReturnType<typeof validarBloqueio>['dados']>;
+
+/** Ex.: '10/11' (dia e mês, sem o ano). */
+const diaEMes = (d: string) => formatarData(d).slice(0, 5);
+
+/** Campos do bloqueio. Ao enviar, só entrega os dados conferidos: quem usa pergunta antes de gravar. */
+function FormularioBloqueio({ aoPedir, onFechar }: { aoPedir: (dados: DadosBloqueio) => void; onFechar: () => void }) {
   const [valores, setValores] = useState<ValoresBloqueio>({ inicio: '', fim: '', motivo: '' });
   const [erros, setErros] = useState<ErrosBloqueio>({});
   const alterar = (mudanca: Partial<ValoresBloqueio>) => setValores((v) => ({ ...v, ...mudanca }));
@@ -23,20 +34,7 @@ function FormularioBloqueio({ onFechar }: Pick<DialogoBloqueioProps, 'onFechar'>
     evento.preventDefault();
     const lido = validarBloqueio(valores);
     setErros(lido.erros);
-    if (lido.dados === null) return;
-    bloquear.mutate(lido.dados);
-  }
-
-  if (bloquear.isSuccess) {
-    const { bloqueio, canceladas } = bloquear.data;
-    return (
-      <>
-        <Aviso tipo="sucesso">{descreverCanceladas(canceladas)}</Aviso>
-        <p>
-          {`${formatarData(bloqueio.inicio)} a ${formatarData(bloqueio.fim)} (${bloqueio.motivo}) ficou bloqueado: a agenda não vai gerar sessões nesses dias.`}
-        </p>
-      </>
-    );
+    if (lido.dados !== null) aoPedir(lido.dados);
   }
 
   return (
@@ -51,12 +49,9 @@ function FormularioBloqueio({ onFechar }: Pick<DialogoBloqueioProps, 'onFechar'>
         onChange={(e) => alterar({ motivo: e.target.value })}
         erro={erros.motivo}
       />
-      {bloquear.isError && <Aviso tipo="erro">Não foi possível bloquear o período. Tente de novo.</Aviso>}
       <div className="flex flex-wrap gap-3">
-        <Botao type="submit" disabled={bloquear.isPending}>
-          {bloquear.isPending ? 'Bloqueando…' : 'Bloquear período'}
-        </Botao>
-        <Botao variante="secundario" disabled={bloquear.isPending} onClick={onFechar}>
+        <Botao type="submit">Bloquear período</Botao>
+        <Botao variante="secundario" onClick={onFechar}>
           Cancelar
         </Botao>
       </div>
@@ -64,11 +59,49 @@ function FormularioBloqueio({ onFechar }: Pick<DialogoBloqueioProps, 'onFechar'>
   );
 }
 
-/** Bloquear dias (férias, feriados): início, fim e motivo; depois diz quantas sessões foram canceladas. */
+/**
+ * Bloquear dias (férias, feriados): início, fim e motivo. Como cancela as sessões do período de uma vez,
+ * pergunta antes de gravar (com o período e o aviso do que será cancelado); depois diz quantas foram canceladas.
+ * Com a pergunta aberta (e enquanto grava) a folha fica travada: nada fecha no meio da gravação.
+ */
 export function DialogoBloqueio({ aberta, onFechar, retornarFocoPara }: DialogoBloqueioProps) {
+  const bloquear = useBloquearPeriodo();
+  const [pedido, setPedido] = useState<DadosBloqueio | null>(null);
+
+  function fechar() {
+    setPedido(null);
+    bloquear.reset();
+    onFechar();
+  }
+
   return (
-    <Folha aberta={aberta} onFechar={onFechar} titulo="Bloquear dias" retornarFocoPara={retornarFocoPara}>
-      <FormularioBloqueio onFechar={onFechar} />
-    </Folha>
+    <>
+      <Folha aberta={aberta} onFechar={fechar} titulo="Bloquear dias" retornarFocoPara={retornarFocoPara} travada={pedido !== null}>
+        {bloquear.isSuccess ? (
+          <>
+            <Aviso tipo="sucesso">{descreverCanceladas(bloquear.data.canceladas)}</Aviso>
+            <p>
+              {`${formatarData(bloquear.data.bloqueio.inicio)} a ${formatarData(bloquear.data.bloqueio.fim)} (${bloquear.data.bloqueio.motivo}) ficou bloqueado: a agenda não vai gerar sessões nesses dias.`}
+            </p>
+          </>
+        ) : (
+          <FormularioBloqueio aoPedir={setPedido} onFechar={fechar} />
+        )}
+      </Folha>
+      {pedido && (
+        <DialogoConfirmacao
+          titulo="Bloquear estes dias?"
+          mensagem={`Bloquear de ${diaEMes(pedido.inicio)} a ${diaEMes(pedido.fim)} (${pedido.motivo})? As sessões que ainda estiverem agendadas nesse período serão canceladas, sem cobrança.`}
+          rotuloConfirmar="Bloquear"
+          ocupado={bloquear.isPending}
+          erro={bloquear.isError ? 'Não foi possível bloquear o período. Tente de novo.' : undefined}
+          aoConfirmar={() => bloquear.mutate(pedido, { onSuccess: () => setPedido(null) })}
+          aoCancelar={() => {
+            bloquear.reset();
+            setPedido(null);
+          }}
+        />
+      )}
+    </>
   );
 }

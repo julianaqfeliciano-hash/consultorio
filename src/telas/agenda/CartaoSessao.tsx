@@ -23,9 +23,9 @@ export function CartaoSessao({ sessao, aoAbrir }: CartaoSessaoProps) {
       type="button"
       onClick={(evento) => aoAbrir(sessao, evento.currentTarget)}
       className={[
-        // Nas colunas estreitas (768 px ou mais) a letra e as margens diminuem e palavras longas podem quebrar.
+        // Nas colunas estreitas (1024 px ou mais) a letra e as margens diminuem e palavras longas podem quebrar.
         'flex min-h-11 w-full flex-col items-start gap-1 rounded-lg border-l-8 bg-white p-2 text-left shadow-sm',
-        'hyphens-auto wrap-anywhere md:border-l-4 md:p-1.5 md:text-sm',
+        'hyphens-auto wrap-anywhere lg:border-l-4 lg:p-1 lg:text-sm',
         'hover:bg-verde-claro/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-petroleo',
         CLASSE_FAIXA_TIPO[tipo],
       ].join(' ')}
@@ -33,7 +33,7 @@ export function CartaoSessao({ sessao, aoAbrir }: CartaoSessaoProps) {
       <span className="flex w-full flex-wrap items-center justify-between gap-x-2">
         <span className="text-lg font-bold">{horaLocal(sessao.inicio)}</span>
         {sessao.confirmada && (
-          <span className="inline-flex items-center gap-1 text-sm font-semibold">
+          <span className="inline-flex items-center gap-1 text-sm font-semibold lg:text-xs">
             <BadgeCheck aria-hidden="true" className="size-4 shrink-0" />
             Confirmada
           </span>
@@ -42,8 +42,13 @@ export function CartaoSessao({ sessao, aoAbrir }: CartaoSessaoProps) {
       <span className="font-semibold">{sessao.pacienteNome}</span>
       <EtiquetaTipo tipo={tipo} />
       {sessao.tipo === 'avaliacao' && <RotuloAvaliacao sessao={sessao} />}
-      {/* A situação não quebra no meio das palavras. */}
-      <span className="hyphens-manual wrap-normal">
+      {/* A situação não quebra no meio das palavras; se faltar largura, o ícone fica em cima do texto. */}
+      <span
+        className={[
+          'hyphens-manual wrap-normal [&>span]:max-w-full [&>span]:flex-wrap [&>span]:justify-center',
+          'lg:[&>span]:gap-x-1 lg:[&>span]:rounded-xl lg:[&>span]:px-1 lg:[&>span]:text-xs lg:[&_svg]:size-3.5',
+        ].join(' ')}
+      >
         <ChipSituacao situacao={sessao.situacao} />
       </span>
     </button>
