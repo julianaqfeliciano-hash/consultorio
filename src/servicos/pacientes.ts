@@ -25,10 +25,14 @@ function novaAvaliacao(pacienteId: Id, inicio: DataISO, config: Configuracoes): 
   };
 }
 
-/** Cadastra o paciente; em avaliação, já abre a avaliação (na data de entrada, ou hoje). */
+/**
+ * Cadastra o paciente; em avaliação, já abre a avaliação (na data de entrada, ou hoje).
+ * Quem chama pode informar o `id`: se a avaliação falhar depois de o paciente ser gravado,
+ * repetir a chamada com o mesmo `id` completa o cadastro em vez de criar um segundo paciente.
+ */
 export async function criarPaciente(
   repo: Repositorio,
-  dados: Omit<Paciente, 'id'>,
+  dados: Rascunho<Paciente>,
   config: Configuracoes,
   hoje: DataISO,
 ): Promise<Paciente> {

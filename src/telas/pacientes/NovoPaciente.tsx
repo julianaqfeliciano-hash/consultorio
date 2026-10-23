@@ -39,6 +39,9 @@ export function NovoPaciente() {
   const [parceiroId, setParceiroId] = useState('');
   const [cobranca, setCobranca] = useState<ValoresCobranca>({ forma: 'por_sessao', valor: '' });
   const [erros, setErros] = useState<Erros>({});
+  // O mesmo id em toda tentativa deste cadastro: se a avaliação falhar depois de o paciente ser gravado,
+  // tentar de novo completa o cadastro em vez de criar um segundo paciente.
+  const [idDoCadastro] = useState(() => crypto.randomUUID());
 
   function aoEnviar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault();
@@ -49,6 +52,7 @@ export function NovoPaciente() {
 
     criar.mutate(
       {
+        id: idDoCadastro,
         ...lidoDados.dados,
         ...lidaCobranca.dados,
         tipo,
@@ -87,7 +91,11 @@ export function NovoPaciente() {
           />
           <SelecaoParceiro valor={parceiroId} aoMudar={setParceiroId} />
           <CamposCobranca valores={cobranca} erros={erros} aoMudar={(m) => setCobranca((v) => ({ ...v, ...m }))} />
-          {criar.isError && <Aviso tipo="erro">Não foi possível salvar. Tente de novo.</Aviso>}
+          {criar.isError && (
+            <Aviso tipo="erro">
+              Não foi possível salvar. Tente de novo. Se o paciente já foi gravado, ele não será duplicado.
+            </Aviso>
+          )}
           <div className="flex flex-wrap gap-3">
             <Botao type="submit" disabled={criar.isPending}>
               {criar.isPending ? 'Salvando…' : 'Salvar paciente'}

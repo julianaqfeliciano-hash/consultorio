@@ -19,17 +19,26 @@ interface Props {
   horario?: HorarioFixo;
   aoConcluir: () => void;
   aoCancelar: () => void;
+  /**
+   * Só ao trocar um horário: chamado quando a troca falha. A troca tem várias gravações e pode ter
+   * ficado pela metade, então quem usa fecha o formulário (o horário antigo já pode estar terminado)
+   * e mostra a lista como ficou, em vez de deixar tentar de novo em cima de dados velhos.
+   */
+  aoFalhar?: () => void;
 }
 
 /**
  * Formulário de horário fixo (dia da semana, hora e duração). Para um horário que já existe,
  * pergunta "A partir de quando?" e troca por um novo a partir dessa data.
  */
-export function FormularioHorario({ pacienteId, horario, aoConcluir, aoCancelar }: Props) {
+export function FormularioHorario({ pacienteId, horario, aoConcluir, aoCancelar, aoFalhar }: Props) {
   const { config } = useConfiguracoes();
   const adicionar = useAdicionarHorario(pacienteId);
   const mudar = useMudarHorario(pacienteId);
   const operacao = horario ? mudar : adicionar;
+  // O mesmo id em toda tentativa deste formulário: se a agenda falhar depois de o horário ser gravado,
+  // tentar de novo regrava esse horário em vez de criar outro.
+  const [idDoHorario] = useState(() => crypto.randomUUID());
   const [valores, setValores] = useState<ValoresHorario>(() =>
     horario
       ? { diaSemana: String(horario.diaSemana), hora: horario.hora, duracao: String(horario.duracaoMin) }
@@ -53,7 +62,7 @@ export function FormularioHorario({ pacienteId, horario, aoConcluir, aoCancelar 
     if (lido.dados === null || avisoDaData) return;
 
     if (!horario) {
-      adicionar.mutate(lido.dados, { onSuccess: aoConcluir });
+      adicionar.mutate({ id: idDoHorario, ...lido.dados }, { onSuccess: aoConcluir });
       return;
     }
     if (
@@ -64,7 +73,7 @@ export function FormularioHorario({ pacienteId, horario, aoConcluir, aoCancelar 
       setSemMudanca(true);
       return;
     }
-    mudar.mutate({ horario, novo: lido.dados, aPartirDe }, { onSuccess: aoConcluir });
+    mudar.mutate({ horario, novo: lido.dados, aPartirDe }, { onSuccess: aoConcluir, onError: aoFalhar });
   }
 
   return (
@@ -108,7 +117,11 @@ export function FormularioHorario({ pacienteId, horario, aoConcluir, aoCancelar 
       />
       {semMudanca && <Aviso tipo="erro">Nada mudou no horário.</Aviso>}
       {operacao.isError && (
-        <Aviso tipo="erro">{horario ? 'Não foi possível mudar o horário. Tente de novo.' : 'Não foi possível salvar. Tente de novo.'}</Aviso>
+        <Aviso tipo="erro">
+          {horario
+            ? 'Não foi possível mudar o horário. Tente de novo.'
+            : 'Não foi possível salvar. Tente de novo. Se o horário já aparece na lista, ele não será duplicado.'}
+        </Aviso>
       )}
       <div className="flex flex-wrap gap-3">
         <Botao type="submit" disabled={operacao.isPending}>

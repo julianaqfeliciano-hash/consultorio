@@ -293,6 +293,33 @@ describe('Novo paciente', () => {
     expect(screen.getByLabelText('Nome')).toHaveValue('Beatriz Teste');
   });
 
+  it('se a avaliação falhar depois de gravar o paciente, tentar de novo completa o cadastro sem criar um segundo paciente', async () => {
+    const base = repositorioDemo();
+    const salvarAvaliacao = vi.fn().mockRejectedValueOnce(new Error('sem rede')).mockImplementation(base.salvarAvaliacao);
+    renderComRotas('/pacientes/novo', { repositorio: { ...base, salvarAvaliacao } });
+    const usuaria = userEvent.setup();
+    const beatrizes = async () => (await base.listarPacientes()).filter((p) => p.nome === 'Beatriz Teste');
+
+    await usuaria.type(await screen.findByLabelText('Nome'), 'Beatriz Teste');
+    await usuaria.click(screen.getByLabelText('Avaliação'));
+    await usuaria.click(screen.getByRole('button', { name: 'Salvar paciente' }));
+
+    const alerta = await screen.findByRole('alert');
+    expect(alerta).toHaveTextContent('Não foi possível salvar. Tente de novo.');
+    expect(alerta).toHaveTextContent('Se o paciente já foi gravado, ele não será duplicado.');
+    // O paciente chegou a ser gravado; a avaliação não.
+    expect(await beatrizes()).toHaveLength(1);
+    expect(screen.getByLabelText('Nome')).toHaveValue('Beatriz Teste');
+
+    await usuaria.click(screen.getByRole('button', { name: 'Salvar paciente' }));
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Beatriz Teste' })).toBeInTheDocument();
+    expect(await screen.findByText('Avaliação · sessão 1 de 10')).toBeInTheDocument();
+    const gravados = await beatrizes();
+    expect(gravados).toHaveLength(1);
+    expect((await base.obterFicha(gravados[0].id))?.avaliacao?.etapas).toHaveLength(5);
+  });
+
   it('Cancelar e o link de voltar levam de volta à lista, sem gravar', async () => {
     const { repositorio, usuaria } = await abrirFormulario();
     const antes = (await repositorio.listarPacientes()).length;

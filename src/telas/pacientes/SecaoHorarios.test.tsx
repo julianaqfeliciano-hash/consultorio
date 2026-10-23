@@ -100,6 +100,31 @@ describe('SecaoHorarios', () => {
       expect((await repositorio.obterFicha('p1'))!.horarios).toEqual([]);
     });
 
+    it('se a agenda falhar depois de gravar o horário, ele já aparece na lista e tentar de novo não o duplica', async () => {
+      const base = SEM_HORARIOS();
+      // O horário é gravado; a geração das sessões é a segunda etapa e falha na primeira tentativa.
+      const inserirOcorrencias = vi.fn().mockRejectedValueOnce(new Error('sem rede')).mockImplementation(base.inserirOcorrencias);
+      const { usuaria, secao } = await abrirSecao('p1', { ...base, inserirOcorrencias });
+
+      await usuaria.click(within(secao).getByRole('button', { name: 'Adicionar horário' }));
+      await usuaria.selectOptions(within(secao).getByLabelText('Dia da semana'), 'Terça');
+      await usuaria.type(within(secao).getByLabelText('Hora'), '14:00');
+      await usuaria.click(within(secao).getByRole('button', { name: 'Salvar horário' }));
+
+      expect(await within(secao).findByRole('alert')).toHaveTextContent('Não foi possível salvar. Tente de novo.');
+      // A ficha mostra o que foi gravado, mesmo com o erro.
+      expect(await within(secao).findByText('Terça, 14:00, 50 min')).toBeInTheDocument();
+      expect((await base.obterFicha('p1'))!.horarios).toHaveLength(1);
+      expect(await base.listarSessoesDoPaciente('p1')).toEqual([]);
+
+      // Tentar de novo conclui a agenda sem criar um segundo horário.
+      await usuaria.click(within(secao).getByRole('button', { name: 'Salvar horário' }));
+      await waitFor(() => expect(within(secao).queryByLabelText('Hora')).not.toBeInTheDocument());
+      expect(within(secao).getAllByText('Terça, 14:00, 50 min')).toHaveLength(1);
+      expect((await base.obterFicha('p1'))!.horarios).toHaveLength(1);
+      expect(await base.listarSessoesDoPaciente('p1')).toHaveLength(4);
+    });
+
     it('Cancelar fecha o formulário sem gravar', async () => {
       const repositorio = SEM_HORARIOS();
       const { usuaria, secao } = await abrirSecao('p1', repositorio);
@@ -208,7 +233,7 @@ describe('SecaoHorarios', () => {
       expect((await repositorio.obterFicha(ANA))!.horarios).toHaveLength(1);
     });
 
-    it('se não conseguir aplicar, avisa', async () => {
+    it('se não conseguir aplicar, avisa e fecha a pergunta, mostrando a lista como está', async () => {
       const base = repositorioDemo();
       const salvarHorario = vi.fn().mockRejectedValue(new Error('sem rede'));
       const { usuaria, secao } = await abrirSecao(ANA, { ...base, salvarHorario });
@@ -217,7 +242,36 @@ describe('SecaoHorarios', () => {
       await usuaria.selectOptions(within(secao).getByLabelText('Dia da semana'), 'Quinta');
       await usuaria.click(within(secao).getByRole('button', { name: 'Aplicar mudança' }));
 
-      expect(await within(secao).findByRole('alert')).toHaveTextContent('Não foi possível mudar o horário. Tente de novo.');
+      expect(await within(secao).findByRole('alert')).toHaveTextContent('Não foi possível mudar o horário.');
+      expect(within(secao).queryByLabelText('A partir de quando?')).not.toBeInTheDocument();
+      // Nada foi gravado: continua só o horário antigo.
+      expect(within(secao).getAllByRole('listitem')).toHaveLength(1);
+      expect(within(secao).getByText('Terça, 14:00, 50 min')).toBeInTheDocument();
+    });
+
+    it('se a troca falhar no meio, a lista mostra o que foi gravado e a pergunta fecha (não dá para repetir em cima de dados velhos)', async () => {
+      const base = repositorioDemo();
+      await garantirAgenda(base, HOJE, 4);
+      // Os dois horários são gravados; a geração das sessões novas, no fim, falha.
+      const inserirOcorrencias = vi.fn().mockRejectedValueOnce(new Error('sem rede')).mockImplementation(base.inserirOcorrencias);
+      const { usuaria, secao } = await abrirSecao(ANA, { ...base, inserirOcorrencias });
+
+      await usuaria.click(within(secao).getByRole('button', { name: 'Mudar horário' }));
+      await usuaria.selectOptions(within(secao).getByLabelText('Dia da semana'), 'Quinta');
+      await usuaria.click(within(secao).getByRole('button', { name: 'Aplicar mudança' }));
+
+      expect(await within(secao).findByRole('alert')).toHaveTextContent('Não foi possível mudar o horário.');
+      expect(within(secao).queryByLabelText('A partir de quando?')).not.toBeInTheDocument();
+      expect(within(secao).queryByRole('button', { name: 'Aplicar mudança' })).not.toBeInTheDocument();
+      // O horário novo já está na lista (o antigo terminou ontem e saiu dela).
+      const itens = within(secao).getAllByRole('listitem');
+      expect(itens).toHaveLength(1);
+      expect(itens[0]).toHaveTextContent('Quinta, 14:00, 50 min');
+      const ficha = await base.obterFicha(ANA);
+      expect(ficha!.horarios.map((h) => [h.diaSemana, h.validoAte])).toEqual([
+        [2, '2026-11-01'],
+        [4, null],
+      ]);
     });
   });
 

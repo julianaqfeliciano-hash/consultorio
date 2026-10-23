@@ -68,6 +68,24 @@ describe('criarPaciente', () => {
     expect((await repo.obterFicha(paciente.id))?.avaliacao?.sessoesPrevistas).toBe(8);
   });
 
+  it('com um id informado, repetir depois de uma falha na avaliação completa o cadastro sem duplicar o paciente', async () => {
+    const base = criarRepositorioMemoria();
+    const salvarAvaliacao = vi.fn().mockRejectedValueOnce(new Error('sem rede')).mockImplementation(base.salvarAvaliacao);
+    const repo = { ...base, salvarAvaliacao };
+    const dados = { id: 'p-fixo', ...dadosPacienteExemplo({ tipo: 'avaliacao' }) };
+
+    await expect(criarPaciente(repo, dados, CONFIGURACOES_PADRAO, '2026-11-02')).rejects.toThrow('sem rede');
+    // O paciente já foi gravado; a avaliação não.
+    expect((await base.listarPacientes()).map((p) => p.id)).toEqual(['p-fixo']);
+    expect((await base.obterFicha('p-fixo'))?.avaliacao).toBeNull();
+
+    const paciente = await criarPaciente(repo, dados, CONFIGURACOES_PADRAO, '2026-11-02');
+
+    expect(paciente.id).toBe('p-fixo');
+    expect(await base.listarPacientes()).toHaveLength(1);
+    expect((await base.obterFicha('p-fixo'))?.avaliacao?.etapas).toHaveLength(5);
+  });
+
   it('em psicoterapia não cria avaliação', async () => {
     const repo = criarRepositorioMemoria();
     const dados = dadosPacienteExemplo({ tipo: 'psicoterapia' });

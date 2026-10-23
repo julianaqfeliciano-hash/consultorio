@@ -26,6 +26,10 @@ export function useSessoesDoPaciente(id: Id) {
 /**
  * Depois de qualquer mudança na ficha: refaz a ficha, a lista de pacientes e as sessões (as do paciente
  * e as da agenda, que começam todas por 'sessoes'). Devolve a promessa para a tela esperar os dados novos.
+ *
+ * As mutações de mais de uma gravação (horário, tipo, alta, início do atendimento) chamam isto em `onSettled`,
+ * não em `onSuccess`: se uma falha no meio, a primeira gravação já está no banco e a tela precisa mostrá-la
+ * (senão a pessoa tenta de novo vendo a ficha velha e duplica o que já foi gravado).
  */
 function useAtualizarFicha(pacienteId: Id) {
   const cliente = useQueryClient();
@@ -57,7 +61,7 @@ export function useIniciarAtendimento(pacienteId: Id) {
       await repositorio.salvarPaciente({ ...paciente, status: 'ativo' });
       await garantirAgenda(repositorio, hojeISO(), config.semanasGeradas);
     },
-    onSuccess: atualizar,
+    onSettled: atualizar,
   });
 }
 
@@ -80,18 +84,22 @@ export function useRemoverResponsavel(pacienteId: Id) {
   });
 }
 
-/** Horário fixo novo, válido desde hoje; em seguida a agenda é completada para as próximas semanas. */
+/**
+ * Horário fixo novo, válido desde hoje; em seguida a agenda é completada para as próximas semanas.
+ * Dê um `id` (o mesmo em toda tentativa do mesmo formulário): se a agenda falhar depois de o horário ser
+ * gravado, repetir regrava o mesmo horário em vez de criar um segundo (que dobraria as sessões da semana).
+ */
 export function useAdicionarHorario(pacienteId: Id) {
   const repositorio = useRepositorio();
   const { config } = useConfiguracoes();
   const atualizar = useAtualizarFicha(pacienteId);
   return useMutation({
-    mutationFn: async (horario: Pick<HorarioFixo, 'diaSemana' | 'hora' | 'duracaoMin'>) => {
+    mutationFn: async (horario: Pick<HorarioFixo, 'id' | 'diaSemana' | 'hora' | 'duracaoMin'>) => {
       const hoje = hojeISO();
       await repositorio.salvarHorario({ ...horario, pacienteId, validoDe: hoje, validoAte: null });
       await garantirAgenda(repositorio, hoje, config.semanasGeradas);
     },
-    onSuccess: atualizar,
+    onSettled: atualizar,
   });
 }
 
@@ -103,7 +111,7 @@ export function useMudarHorario(pacienteId: Id) {
   return useMutation({
     mutationFn: (e: { horario: HorarioFixo; novo: Pick<HorarioFixo, 'diaSemana' | 'hora' | 'duracaoMin'>; aPartirDe: DataISO }) =>
       mudarHorarioFixo(repositorio, e.horario, e.novo, e.aPartirDe, config.semanasGeradas),
-    onSuccess: atualizar,
+    onSettled: atualizar,
   });
 }
 
@@ -114,7 +122,7 @@ export function useMudarTipo(pacienteId: Id) {
   const atualizar = useAtualizarFicha(pacienteId);
   return useMutation({
     mutationFn: (novoTipo: TipoAtendimento) => mudarTipo(repositorio, pacienteId, novoTipo, hojeISO(), config),
-    onSuccess: atualizar,
+    onSettled: atualizar,
   });
 }
 
@@ -124,7 +132,7 @@ export function useDarAlta(pacienteId: Id) {
   const atualizar = useAtualizarFicha(pacienteId);
   return useMutation({
     mutationFn: (data: DataISO) => darAlta(repositorio, pacienteId, data),
-    onSuccess: atualizar,
+    onSettled: atualizar,
   });
 }
 

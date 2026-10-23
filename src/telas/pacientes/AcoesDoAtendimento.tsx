@@ -25,13 +25,21 @@ export function AcoesDoAtendimento({ paciente }: { paciente: Paciente }) {
   const mudarTipo = useMudarTipo(paciente.id);
   const iniciar = useIniciarAtendimento(paciente.id);
   const alta = useDarAlta(paciente.id);
-  const [confirmandoTipo, setConfirmandoTipo] = useState(false);
+  // O tipo para o qual a pergunta foi aberta. Fica guardado porque, se a troca falhar no meio, o paciente
+  // já pode estar no tipo novo; a pergunta não pode virar "mudar de volta".
+  const [tipoAConfirmar, setTipoAConfirmar] = useState<TipoAtendimento | null>(null);
   const [pedindoDataDaAlta, setPedindoDataDaAlta] = useState(false);
   const [dataDaAlta, setDataDaAlta] = useState('');
   const [avisoDaData, setAvisoDaData] = useState('');
   const [confirmandoAlta, setConfirmandoAlta] = useState(false);
 
-  if (paciente.status === 'alta') return null;
+  if (paciente.status === 'alta') {
+    // A alta tem várias gravações: se falhou no meio, a data já está gravada (a ficha mostra a alta),
+    // mas os horários e as sessões agendadas podem não ter sido atualizados.
+    return alta.isError ? (
+      <Aviso tipo="erro">A alta foi registrada, mas não foi possível atualizar os horários e as sessões agendadas. Confira a agenda.</Aviso>
+    ) : null;
+  }
 
   const novoTipo: TipoAtendimento = paciente.tipo === 'avaliacao' ? 'psicoterapia' : 'avaliacao';
 
@@ -68,7 +76,13 @@ export function AcoesDoAtendimento({ paciente }: { paciente: Paciente }) {
         </>
       )}
 
-      <Botao variante="secundario" onClick={() => setConfirmandoTipo(true)}>
+      {paciente.status === 'ativo' && iniciar.isError && (
+        <Aviso tipo="erro">
+          O atendimento foi iniciado, mas não foi possível completar a agenda. Abra a agenda para completar as sessões.
+        </Aviso>
+      )}
+
+      <Botao variante="secundario" onClick={() => setTipoAConfirmar(novoTipo)}>
         {`Mudar para ${MINUSCULA[novoTipo]}`}
       </Botao>
 
@@ -88,16 +102,16 @@ export function AcoesDoAtendimento({ paciente }: { paciente: Paciente }) {
         </Botao>
       )}
 
-      {confirmandoTipo && (
+      {tipoAConfirmar && (
         <DialogoConfirmacao
-          titulo={`Mudar para ${MINUSCULA[novoTipo]}?`}
-          mensagem={MENSAGEM_DO_TIPO[novoTipo](paciente.nome)}
+          titulo={`Mudar para ${MINUSCULA[tipoAConfirmar]}?`}
+          mensagem={MENSAGEM_DO_TIPO[tipoAConfirmar](paciente.nome)}
           rotuloConfirmar="Mudar tipo"
           ocupado={mudarTipo.isPending}
           erro={mudarTipo.isError ? 'Não foi possível mudar o tipo. Tente de novo.' : undefined}
-          aoConfirmar={() => mudarTipo.mutate(novoTipo, { onSuccess: () => setConfirmandoTipo(false) })}
+          aoConfirmar={() => mudarTipo.mutate(tipoAConfirmar, { onSuccess: () => setTipoAConfirmar(null) })}
           aoCancelar={() => {
-            setConfirmandoTipo(false);
+            setTipoAConfirmar(null);
             mudarTipo.reset();
           }}
         />

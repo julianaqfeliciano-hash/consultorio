@@ -1,5 +1,6 @@
 import { Plus } from 'lucide-react';
 import { useId, useState } from 'react';
+import { Aviso } from '../../componentes/Aviso';
 import { Botao } from '../../componentes/Botao';
 import { SecaoRecolhivel } from '../../componentes/SecaoRecolhivel';
 import { descreverHorario } from '../../dominio/rotulos';
@@ -29,12 +30,16 @@ export function SecaoHorarios({ pacienteId, status, horarios }: Props) {
   const prefixo = useId();
   const [adicionando, setAdicionando] = useState(false);
   const [mudando, setMudando] = useState<Id | null>(null);
+  const [mudancaFalhou, setMudancaFalhou] = useState(false);
   const hoje = hojeISO();
   const vigentes = horarios.filter((h) => h.validoAte === null || h.validoAte >= hoje);
   const somenteLeitura = status === 'alta';
 
   return (
     <SecaoRecolhivel titulo="Horários fixos" abertaNoCelular>
+      {mudancaFalhou && (
+        <Aviso tipo="erro">Não foi possível mudar o horário. Confira na lista o que ficou gravado antes de tentar de novo.</Aviso>
+      )}
       {vigentes.length === 0 && <p>Nenhum horário fixo ainda.</p>}
       {vigentes.length > 0 && (
         <ul className="flex flex-col gap-3">
@@ -57,10 +62,22 @@ export function SecaoHorarios({ pacienteId, status, horarios }: Props) {
                     horario={h}
                     aoConcluir={() => setMudando(null)}
                     aoCancelar={() => setMudando(null)}
+                    aoFalhar={() => {
+                      setMudando(null);
+                      setMudancaFalhou(true);
+                    }}
                   />
                 ) : (
                   podeMudar && (
-                    <Botao variante="secundario" aria-describedby={idDescricao} className="self-start" onClick={() => setMudando(h.id)}>
+                    <Botao
+                      variante="secundario"
+                      aria-describedby={idDescricao}
+                      className="self-start"
+                      onClick={() => {
+                        setMudancaFalhou(false);
+                        setMudando(h.id);
+                      }}
+                    >
                       Mudar horário
                     </Botao>
                   )
