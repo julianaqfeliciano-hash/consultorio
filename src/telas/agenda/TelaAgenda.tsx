@@ -12,14 +12,15 @@ import { dataLocal, hojeISO, inicioDaSemana, somarDias } from '../../regras/data
 import { DialogoAvulsa } from './DialogoAvulsa';
 import { DialogoBloqueio } from './DialogoBloqueio';
 import { GradeSemana } from './GradeSemana';
+import { ListaDoDia } from './ListaDoDia';
 import { NavegacaoSemana } from './NavegacaoSemana';
 import { PainelSessao } from './PainelSessao';
 
 type Dialogo = 'avulsa' | 'bloqueio';
 
 /**
- * A agenda: a semana (um dia por vez no celular, sete colunas a partir de 768 px), o painel da sessão,
- * a sessão avulsa e o bloqueio de dias. Ao abrir, completa as próximas semanas a partir dos horários fixos.
+ * A agenda: o aviso e a lista de amanhã, a semana (um dia por vez no celular, sete colunas a partir de 768 px),
+ * o painel da sessão, a sessão avulsa e o bloqueio de dias. Ao abrir, completa as próximas semanas a partir dos horários fixos.
  */
 export function TelaAgenda() {
   const telaLarga = useTelaLarga();
@@ -67,6 +68,8 @@ export function TelaAgenda() {
           </Botao>
         </div>
       </div>
+
+      <ListaDoDia agendaPronta={agenda.pronta} />
 
       {agenda.falhou && (
         <div className="flex flex-col items-start gap-3">

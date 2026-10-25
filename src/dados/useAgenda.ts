@@ -35,14 +35,16 @@ function useAtualizarAgenda() {
 /**
  * Ao abrir a agenda, completa as próximas semanas a partir dos horários fixos (uma vez por abertura,
  * mesmo que o React rode o efeito duas vezes) e refaz as sessões na tela. Espera as configurações
- * chegarem para usar o número de semanas certo. `falhou` avisa que não deu; `tentarDeNovo` repete.
+ * chegarem para usar o número de semanas certo. `pronta` diz que terminou (deu certo ou não) e que as
+ * sessões na tela já são as de depois da geração: contagens do dia só valem a partir daí.
+ * `falhou` avisa que não deu; `tentarDeNovo` repete.
  */
 export function useGarantirAgendaAoAbrir() {
   const repositorio = useRepositorio();
   const { config, carregando } = useConfiguracoes();
   const atualizar = useAtualizarAgenda();
   const jaIniciou = useRef(false);
-  const { mutate, isError } = useMutation({
+  const { mutate, isError, isSuccess } = useMutation({
     mutationFn: (semanas: number) => garantirAgenda(repositorio, hojeISO(), semanas),
     onSettled: atualizar,
   });
@@ -53,7 +55,7 @@ export function useGarantirAgendaAoAbrir() {
     mutate(config.semanasGeradas);
   }, [carregando, config.semanasGeradas, mutate]);
 
-  return { falhou: isError, tentarDeNovo: () => mutate(config.semanasGeradas) };
+  return { pronta: isSuccess || isError, falhou: isError, tentarDeNovo: () => mutate(config.semanasGeradas) };
 }
 
 /** Registra o que aconteceu na sessão (veja `marcarSituacao`). */
@@ -77,12 +79,12 @@ export function useRemarcar() {
   });
 }
 
-/** Muda campos de uma sessão (acompanhamento familiar, observação). */
+/** Muda campos de uma sessão (acompanhamento familiar, observação, confirmada). */
 export function useAtualizarSessao() {
   const repositorio = useRepositorio();
   const atualizar = useAtualizarAgenda();
   return useMutation({
-    mutationFn: (e: { id: Id; mudancas: Partial<Pick<Sessao, 'acompanhamentoFamiliar' | 'observacao'>> }) =>
+    mutationFn: (e: { id: Id; mudancas: Partial<Pick<Sessao, 'acompanhamentoFamiliar' | 'observacao' | 'confirmada'>> }) =>
       repositorio.atualizarSessao(e.id, e.mudancas),
     onSettled: atualizar,
   });
