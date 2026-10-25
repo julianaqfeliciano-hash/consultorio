@@ -3,6 +3,7 @@ import {
   FUSO,
   dataLocal,
   diaDaSemana,
+  diasNoPeriodo,
   diaPorExtenso,
   entre,
   formatarData,
@@ -67,6 +68,14 @@ describe('datas (fuso America/Sao_Paulo)', () => {
 
   it('hojeISO usa o dia local de São Paulo', () => {
     expect(hojeISO(new Date('2026-11-04T02:30:00.000Z'))).toBe('2026-11-03');
+  });
+
+  it('diasNoPeriodo conta os dias com as duas pontas incluídas', () => {
+    expect(diasNoPeriodo('2026-11-10', '2026-11-10')).toBe(1);
+    expect(diasNoPeriodo('2026-11-10', '2026-11-14')).toBe(5);
+    expect(diasNoPeriodo('2026-12-01', '2026-12-31')).toBe(31);
+    expect(diasNoPeriodo('2026-12-01', '2027-01-01')).toBe(32);
+    expect(diasNoPeriodo('2026-11-10', '2027-11-14')).toBe(370);
   });
 
   it('entre é inclusivo nos dois limites', () => {

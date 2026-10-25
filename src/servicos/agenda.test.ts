@@ -372,6 +372,21 @@ describe('bloquearPeriodo', () => {
     ]);
   });
 
+  it('não apaga a observação que a sessão já tinha: acrescenta o motivo numa linha nova', async () => {
+    const repo = novoRepo();
+    await garantirAgenda(repo, '2026-11-02', 4);
+    const [d10, d17] = await repo.listarSessoes('2026-11-10', '2026-11-17');
+    await repo.atualizarSessao(d10.id, { observacao: 'Trazer o laudo da escola.' });
+    await repo.atualizarSessao(d17.id, { observacao: '   ' });
+
+    await bloquearPeriodo(repo, { inicio: '2026-11-09', fim: '2026-11-22', motivo: 'Férias' });
+
+    const [b10, b17] = await repo.listarSessoes('2026-11-10', '2026-11-17');
+    expect(b10).toMatchObject({ situacao: 'cancelada', observacao: 'Trazer o laudo da escola.\nBloqueio: Férias' });
+    // Só espaços contam como vazia: fica só o motivo, como antes.
+    expect(b17).toMatchObject({ situacao: 'cancelada', observacao: 'Férias' });
+  });
+
   it('a agenda gerada depois respeita o bloqueio', async () => {
     const repo = novoRepo();
     await bloquearPeriodo(repo, { inicio: '2026-11-09', fim: '2026-11-15', motivo: 'Férias' });

@@ -91,8 +91,9 @@ export async function criarAvulsa(
 }
 
 /**
- * Bloqueia o período e cancela as sessões ainda agendadas dentro dele (de qualquer origem).
- * O que já aconteceu — comparecimento, falta, remarcação — fica como está.
+ * Bloqueia o período e cancela as sessões ainda agendadas dentro dele (de qualquer origem), com o motivo na
+ * observação (acrescentado numa linha nova quando ela já tinha alguma). O que já aconteceu — comparecimento,
+ * falta, remarcação — fica como está.
  */
 export async function bloquearPeriodo(
   repo: Repositorio,
@@ -101,7 +102,15 @@ export async function bloquearPeriodo(
   // O bloqueio entra primeiro: a partir daí a agenda já não gera sessões no período.
   const bloqueio = await repo.salvarBloqueio(b);
   const sessoes = await repo.listarSessoes(b.inicio, b.fim);
-  const ids = selecionarAgendadas(sessoes, { de: b.inicio, ate: b.fim });
-  await Promise.all(ids.map((id) => repo.atualizarSessao(id, { situacao: 'cancelada', observacao: b.motivo })));
-  return { bloqueio, canceladas: ids.length };
+  const ids = new Set(selecionarAgendadas(sessoes, { de: b.inicio, ate: b.fim }));
+  const canceladas = sessoes.filter((s) => ids.has(s.id));
+  await Promise.all(
+    canceladas.map((s) =>
+      repo.atualizarSessao(s.id, {
+        situacao: 'cancelada',
+        observacao: s.observacao?.trim() ? `${s.observacao}\nBloqueio: ${b.motivo}` : b.motivo,
+      }),
+    ),
+  );
+  return { bloqueio, canceladas: canceladas.length };
 }

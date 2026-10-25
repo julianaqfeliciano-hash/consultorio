@@ -310,11 +310,37 @@ describe('TelaAgenda — bloquear dias', () => {
     await preencher(dialogo, usuaria, { inicio: '2026-11-10', fim: '2026-11-14', motivo: 'Feriado' });
 
     const pergunta = await confirmacao();
-    expect(pergunta).toHaveTextContent('10/11 a 14/11');
+    // Com o ano: um ano digitado errado aparece na pergunta.
+    expect(pergunta).toHaveTextContent('10/11/2026 a 14/11/2026');
     expect(pergunta).toHaveTextContent('Feriado');
     expect(pergunta).toHaveTextContent('As sessões que ainda estiverem agendadas nesse período serão canceladas');
+    expect(pergunta).not.toHaveTextContent('Atenção');
     // Só perguntou: nada foi gravado.
     expect(await repositorio.listarBloqueios()).toEqual([]);
+  });
+
+  it.each([
+    ['2026-11-10', '2027-11-14', 'Atenção: são 370 dias.'],
+    ['2026-12-01', '2027-01-01', 'Atenção: são 32 dias.'],
+  ])('período de %s a %s (mais de 31 dias): a pergunta avisa "%s"', async (inicio, fim, aviso) => {
+    const { usuaria, dialogo, repositorio } = await abrirBloqueio();
+
+    await preencher(dialogo, usuaria, { inicio, fim, motivo: 'Férias' });
+
+    const pergunta = await confirmacao();
+    expect(within(pergunta).getByText(aviso)).toBeInTheDocument();
+    expect(pergunta).toHaveAccessibleDescription(expect.stringContaining(aviso));
+    expect(await repositorio.listarBloqueios()).toEqual([]);
+  });
+
+  it('31 dias ainda não pede atenção', async () => {
+    const { usuaria, dialogo } = await abrirBloqueio();
+
+    await preencher(dialogo, usuaria, { inicio: '2026-12-01', fim: '2026-12-31', motivo: 'Férias' });
+
+    const pergunta = await confirmacao();
+    expect(pergunta).toHaveTextContent('01/12/2026 a 31/12/2026');
+    expect(pergunta).not.toHaveTextContent('Atenção');
   });
 
   it('"Cancelar" na pergunta não muda nada e mantém o formulário preenchido', async () => {

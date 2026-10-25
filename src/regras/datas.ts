@@ -1,5 +1,5 @@
 import { TZDate } from '@date-fns/tz';
-import { addDays, format, startOfWeek } from 'date-fns';
+import { addDays, differenceInCalendarDays, format, startOfWeek } from 'date-fns';
 import { ptBR } from 'date-fns/locale/pt-BR';
 import type { DataISO, Hora } from '../dominio/tipos';
 
@@ -72,6 +72,11 @@ export function formatarData(d: DataISO): string {
 /** Ex.: 'terça-feira, 03/11'. */
 export function diaPorExtenso(d: DataISO): string {
   return format(meiaNoite(d), 'EEEE, dd/MM', { locale: ptBR });
+}
+
+/** Quantos dias vão de `ini` a `fim`, com os dois incluídos (o mesmo dia conta 1). */
+export function diasNoPeriodo(ini: DataISO, fim: DataISO): number {
+  return differenceInCalendarDays(meiaNoite(fim), meiaNoite(ini)) + 1;
 }
 
 /** `d` está entre `ini` e `fim`, com os dois limites incluídos. */

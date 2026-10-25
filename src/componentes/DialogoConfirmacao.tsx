@@ -1,10 +1,12 @@
-import { CircleAlert } from 'lucide-react';
+import { CircleAlert, TriangleAlert } from 'lucide-react';
 import { useEffect, useId, useRef } from 'react';
 import { Botao } from './Botao';
 
 interface DialogoConfirmacaoProps {
   titulo: string;
   mensagem: string;
+  /** Linha de alerta depois da mensagem (ex.: "Atenção: são 45 dias."), em destaque. */
+  aviso?: string;
   /** Texto do botão que confirma, no verbo da ação ("Remover"). */
   rotuloConfirmar: string;
   aoConfirmar: () => void;
@@ -23,6 +25,7 @@ interface DialogoConfirmacaoProps {
 export function DialogoConfirmacao({
   titulo,
   mensagem,
+  aviso,
   rotuloConfirmar,
   aoConfirmar,
   aoCancelar,
@@ -31,6 +34,7 @@ export function DialogoConfirmacao({
 }: DialogoConfirmacaoProps) {
   const idTitulo = useId();
   const idMensagem = useId();
+  const idAviso = useId();
   const caixa = useRef<HTMLDivElement>(null);
   const botaoCancelar = useRef<HTMLButtonElement>(null);
 
@@ -79,13 +83,19 @@ export function DialogoConfirmacao({
         role="dialog"
         aria-modal="true"
         aria-labelledby={idTitulo}
-        aria-describedby={idMensagem}
+        aria-describedby={aviso ? `${idMensagem} ${idAviso}` : idMensagem}
         className="flex w-full max-w-sm flex-col gap-4 rounded-lg bg-creme p-6 shadow-xl"
       >
         <h2 id={idTitulo} className="text-xl">
           {titulo}
         </h2>
         <p id={idMensagem}>{mensagem}</p>
+        {aviso && (
+          <p id={idAviso} className="flex items-start gap-2 font-semibold">
+            <TriangleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
+            {aviso}
+          </p>
+        )}
         {erro && (
           <p role="alert" className="flex items-start gap-2 rounded-lg bg-amarelo/30 p-3 font-semibold">
             <CircleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />

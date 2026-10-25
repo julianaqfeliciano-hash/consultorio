@@ -5,7 +5,7 @@ import { Campo } from '../../componentes/Campo';
 import { DialogoConfirmacao } from '../../componentes/DialogoConfirmacao';
 import { Folha } from '../../componentes/Folha';
 import { useBloquearPeriodo } from '../../dados/useAgenda';
-import { formatarData } from '../../regras/datas';
+import { diasNoPeriodo, formatarData } from '../../regras/datas';
 import {
   descreverCanceladas,
   validarBloqueio,
@@ -21,8 +21,13 @@ interface DialogoBloqueioProps {
 
 type DadosBloqueio = NonNullable<ReturnType<typeof validarBloqueio>['dados']>;
 
-/** Ex.: '10/11' (dia e mês, sem o ano). */
-const diaEMes = (d: string) => formatarData(d).slice(0, 5);
+/** Período longo demais para ser engano comum: a pergunta pede atenção (um ano digitado errado, por exemplo). */
+const DIAS_PARA_PEDIR_ATENCAO = 31;
+
+function avisoDoPeriodo(p: DadosBloqueio): string | undefined {
+  const dias = diasNoPeriodo(p.inicio, p.fim);
+  return dias > DIAS_PARA_PEDIR_ATENCAO ? `Atenção: são ${dias} dias.` : undefined;
+}
 
 /** Campos do bloqueio. Ao enviar, só entrega os dados conferidos: quem usa pergunta antes de gravar. */
 function FormularioBloqueio({ aoPedir, onFechar }: { aoPedir: (dados: DadosBloqueio) => void; onFechar: () => void }) {
@@ -61,7 +66,8 @@ function FormularioBloqueio({ aoPedir, onFechar }: { aoPedir: (dados: DadosBloqu
 
 /**
  * Bloquear dias (férias, feriados): início, fim e motivo. Como cancela as sessões do período de uma vez,
- * pergunta antes de gravar (com o período e o aviso do que será cancelado); depois diz quantas foram canceladas.
+ * pergunta antes de gravar (com o período, datas com o ano, e o aviso do que será cancelado; período de mais de
+ * 31 dias pede atenção); depois diz quantas foram canceladas.
  * Com a pergunta aberta (e enquanto grava) a folha fica travada: nada fecha no meio da gravação.
  */
 export function DialogoBloqueio({ aberta, onFechar, retornarFocoPara }: DialogoBloqueioProps) {
@@ -91,7 +97,8 @@ export function DialogoBloqueio({ aberta, onFechar, retornarFocoPara }: DialogoB
       {pedido && (
         <DialogoConfirmacao
           titulo="Bloquear estes dias?"
-          mensagem={`Bloquear de ${diaEMes(pedido.inicio)} a ${diaEMes(pedido.fim)} (${pedido.motivo})? As sessões que ainda estiverem agendadas nesse período serão canceladas, sem cobrança.`}
+          mensagem={`Bloquear de ${formatarData(pedido.inicio)} a ${formatarData(pedido.fim)} (${pedido.motivo})? As sessões que ainda estiverem agendadas nesse período serão canceladas, sem cobrança.`}
+          aviso={avisoDoPeriodo(pedido)}
           rotuloConfirmar="Bloquear"
           ocupado={bloquear.isPending}
           erro={bloquear.isError ? 'Não foi possível bloquear o período. Tente de novo.' : undefined}
