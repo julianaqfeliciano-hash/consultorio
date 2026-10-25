@@ -9,8 +9,8 @@ import type {
   Paciente,
   TipoAtendimento,
 } from '../dominio/tipos';
-import { selecionarAgendadas } from '../regras/agenda';
-import { somarDias } from '../regras/datas';
+import { planejarMudancaDeHorario, selecionarAgendadas } from '../regras/agenda';
+import { hojeISO, somarDias } from '../regras/datas';
 import { garantirAgenda } from './agenda';
 import { exigirFicha } from './comum';
 
@@ -44,9 +44,11 @@ export async function criarPaciente(
 }
 
 /**
- * Troca o horário fixo a partir de `aPartirDe`: o antigo termina na véspera, o novo
- * começa nesse dia, e as sessões ainda agendadas do antigo dali em diante dão lugar às do novo.
- * O que veio antes de `aPartirDe` não muda.
+ * Troca o horário fixo a partir de `aPartirDe` (hoje ou depois; não antes de o horário começar a valer).
+ * O antigo termina na véspera e o novo começa nesse dia; se o antigo começou nesse mesmo dia, ele é trocado
+ * no lugar (um horário nunca termina antes de começar). Das sessões do antigo dali em diante, só as agendadas
+ * que ainda não aconteceram dão lugar às do novo; o que já aconteceu ou foi mexido à mão fica e ocupa a semana
+ * (veja `planejarMudancaDeHorario`). O que veio antes de `aPartirDe` não muda.
  */
 export async function mudarHorarioFixo(
   repo: Repositorio,
@@ -54,21 +56,38 @@ export async function mudarHorarioFixo(
   novo: Pick<HorarioFixo, 'diaSemana' | 'hora' | 'duracaoMin'>,
   aPartirDe: DataISO,
   semanas: number,
+  agora: Date = new Date(),
 ): Promise<HorarioFixo> {
-  await repo.salvarHorario({ ...horario, validoAte: somarDias(aPartirDe, -1) });
-  const criado = await repo.salvarHorario({
-    pacienteId: horario.pacienteId,
-    diaSemana: novo.diaSemana,
-    hora: novo.hora,
-    duracaoMin: novo.duracaoMin,
-    validoDe: aPartirDe,
-    validoAte: null,
-  });
+  if (aPartirDe < horario.validoDe) {
+    throw new Error(`A mudança não pode começar antes de ${horario.validoDe}, quando o horário começa a valer.`);
+  }
+  const hoje = hojeISO(agora);
+  const mudancas = { diaSemana: novo.diaSemana, hora: novo.hora, duracaoMin: novo.duracaoMin };
+  let criado: HorarioFixo;
+  if (aPartirDe === horario.validoDe) {
+    criado = await repo.salvarHorario({ ...horario, ...mudancas });
+  } else {
+    const vespera = somarDias(aPartirDe, -1);
+    // Um horário que já tinha data para terminar antes não é reaberto.
+    const validoAte = horario.validoAte !== null && horario.validoAte < vespera ? horario.validoAte : vespera;
+    await repo.salvarHorario({ ...horario, validoAte });
+    criado = await repo.salvarHorario({ pacienteId: horario.pacienteId, ...mudancas, validoDe: aPartirDe, validoAte: null });
+  }
+
   const sessoes = await repo.listarSessoesDoPaciente(horario.pacienteId);
-  await repo.removerSessoes(
-    selecionarAgendadas(sessoes, { horarioFixoId: horario.id, de: aPartirDe, somenteFixas: true }),
+  const { remover, ocupar } = planejarMudancaDeHorario({
+    sessoes,
+    antigoId: horario.id,
+    novo: criado,
+    aPartirDe,
+    agora: agora.toISOString(),
+  });
+  await repo.removerSessoes(remover);
+  await Promise.all(
+    ocupar.map((o) => repo.atualizarSessao(o.id, { horarioFixoId: criado.id, dataOcorrencia: o.dataOcorrencia })),
   );
-  await garantirAgenda(repo, aPartirDe, semanas);
+  // Nada é gerado no passado.
+  await garantirAgenda(repo, aPartirDe > hoje ? aPartirDe : hoje, semanas);
   return criado;
 }
 

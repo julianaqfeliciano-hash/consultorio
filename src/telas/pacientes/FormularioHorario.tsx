@@ -8,7 +8,7 @@ import { useAdicionarHorario, useMudarHorario } from '../../dados/useFicha';
 import { ROTULO_DIA_SEMANA } from '../../dominio/rotulos';
 import type { HorarioFixo, Id } from '../../dominio/tipos';
 import { hojeISO } from '../../regras/datas';
-import { validarHorario, type ErrosHorario, type ValoresHorario } from '../../regras/formularios';
+import { avisoDaMudancaDeHorario, validarHorario, type ErrosHorario, type ValoresHorario } from '../../regras/formularios';
 
 /** Segunda a sábado, depois domingo: a semana de quem atende. */
 const ORDEM_DOS_DIAS = [1, 2, 3, 4, 5, 6, 0];
@@ -56,7 +56,7 @@ export function FormularioHorario({ pacienteId, horario, aoConcluir, aoCancelar,
   function aoEnviar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault();
     const lido = validarHorario(valores);
-    const avisoDaData = horario && aPartirDe === '' ? 'Informe a partir de quando vale o novo horário.' : undefined;
+    const avisoDaData = horario ? avisoDaMudancaDeHorario(aPartirDe, hojeISO(), horario.validoDe) : undefined;
     setErros({ ...lido.erros, ...(avisoDaData ? { aPartirDe: avisoDaData } : {}) });
     setSemMudanca(false);
     if (lido.dados === null || avisoDaData) return;
@@ -76,6 +76,7 @@ export function FormularioHorario({ pacienteId, horario, aoConcluir, aoCancelar,
     mudar.mutate({ horario, novo: lido.dados, aPartirDe }, { onSuccess: aoConcluir, onError: aoFalhar });
   }
 
+  const hoje = hojeISO();
   return (
     <form noValidate onSubmit={aoEnviar} className="flex flex-col gap-4">
       {horario && (
@@ -83,6 +84,7 @@ export function FormularioHorario({ pacienteId, horario, aoConcluir, aoCancelar,
           rotulo="A partir de quando?"
           ajuda="O novo horário vale desta data em diante. O que já aconteceu não muda."
           type="date"
+          min={horario.validoDe > hoje ? horario.validoDe : hoje}
           value={aPartirDe}
           onChange={(e) => {
             setAPartirDe(e.target.value);

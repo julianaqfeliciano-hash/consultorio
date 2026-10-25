@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  avisoDaMudancaDeHorario,
   DADOS_EM_BRANCO,
   validarCobranca,
   validarDados,
@@ -120,6 +121,31 @@ describe('validarHorario', () => {
       expect(validarHorario({ diaSemana: '2', hora: '14:00', duracao }).erros.duracao).toBeDefined();
     }
     expect(validarHorario({ diaSemana: '2', hora: '14:00', duracao: '480' }).erros).toEqual({});
+  });
+});
+
+describe('avisoDaMudancaDeHorario', () => {
+  const hoje = '2026-11-02';
+
+  it('aceita hoje e qualquer data futura a partir do início do horário', () => {
+    expect(avisoDaMudancaDeHorario('2026-11-02', hoje, '2026-08-04')).toBeUndefined();
+    expect(avisoDaMudancaDeHorario('2026-11-09', hoje, '2026-08-04')).toBeUndefined();
+    // O horário que começa hoje pode mudar desde hoje.
+    expect(avisoDaMudancaDeHorario('2026-11-02', hoje, '2026-11-02')).toBeUndefined();
+  });
+
+  it('exige a data', () => {
+    expect(avisoDaMudancaDeHorario('', hoje, '2026-08-04')).toBe('Informe a partir de quando vale o novo horário.');
+    expect(avisoDaMudancaDeHorario('20261-11-03', hoje, '2026-08-04')).toBe('Informe a partir de quando vale o novo horário.');
+  });
+
+  it('recusa data no passado (inclusive um ano digitado errado)', () => {
+    expect(avisoDaMudancaDeHorario('2026-11-01', hoje, '2026-08-04')).toBe('Escolha hoje ou uma data futura.');
+    expect(avisoDaMudancaDeHorario('2025-11-03', hoje, '2026-08-04')).toBe('Escolha hoje ou uma data futura.');
+  });
+
+  it('recusa começar antes de o horário atual valer', () => {
+    expect(avisoDaMudancaDeHorario('2026-11-10', hoje, '2026-11-16')).toBe('A mudança não pode começar antes de 16/11/2026.');
   });
 });
 

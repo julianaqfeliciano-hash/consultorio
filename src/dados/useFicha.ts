@@ -110,7 +110,7 @@ export function useMudarHorario(pacienteId: Id) {
   const atualizar = useAtualizarFicha(pacienteId);
   return useMutation({
     mutationFn: (e: { horario: HorarioFixo; novo: Pick<HorarioFixo, 'diaSemana' | 'hora' | 'duracaoMin'>; aPartirDe: DataISO }) =>
-      mudarHorarioFixo(repositorio, e.horario, e.novo, e.aPartirDe, config.semanasGeradas),
+      mudarHorarioFixo(repositorio, e.horario, e.novo, e.aPartirDe, config.semanasGeradas, new Date()),
     onSettled: atualizar,
   });
 }

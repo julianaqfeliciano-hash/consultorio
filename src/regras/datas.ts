@@ -55,6 +55,14 @@ export function inicioDaSemana(d: DataISO): DataISO {
   return format(startOfWeek(meiaNoite(d), { weekStartsOn: 1 }), 'yyyy-MM-dd');
 }
 
+/**
+ * A data da semana de `d` (segunda a domingo, como em `inicioDaSemana`) que cai no dia `diaSemana`
+ * (0 = domingo, 1 = segunda, ..., 6 = sábado). Ex.: a quinta da semana de terça, 17/11, é 19/11.
+ */
+export function mesmoDiaNaSemana(d: DataISO, diaSemana: number): DataISO {
+  return somarDias(inicioDaSemana(d), (diaSemana + 6) % 7);
+}
+
 /** Ex.: '03/11/2026'. */
 export function formatarData(d: DataISO): string {
   const [ano, mes, dia] = d.split('-');

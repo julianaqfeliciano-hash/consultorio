@@ -12,6 +12,7 @@ import {
   estaBloqueado,
   gerarOcorrencias,
   numeroNaAvaliacao,
+  planejarMudancaDeHorario,
   selecionarAgendadas,
   sessaoAtualNaAvaliacao,
   separarSessoesDoPaciente,
@@ -332,5 +333,77 @@ describe('separarSessoesDoPaciente', () => {
   it('o dia de hoje conta como próxima, o dia anterior não', () => {
     const { proximas } = separarSessoesDoPaciente(sessoes, '2026-11-03');
     expect(proximas.map((s) => s.id)).toEqual(['proxima-1', 'proxima-2']);
+  });
+});
+
+describe('planejarMudancaDeHorario', () => {
+  // O horário hf1 (terça 14:00) muda para quinta a partir de terça, 10/11.
+  const fixaDe = (dia: string, sobre: Partial<Sessao> = {}) =>
+    sessao({ id: dia, inicio: `${dia}T17:00:00.000Z`, dataOcorrencia: dia, ...sobre });
+  const sessoes: Sessao[] = [
+    fixaDe('2026-11-03'),
+    fixaDe('2026-11-10'),
+    fixaDe('2026-11-17', { situacao: 'cancelada', observacao: 'congresso' }),
+    fixaDe('2026-11-24'),
+    fixaDe('2026-12-01', { situacao: 'remarcada', remarcadaPara: 'x' }),
+    fixaDe('2026-12-08', { situacao: 'falta_com_aviso' }),
+    // De outro horário e avulsa: não são do horário que muda.
+    sessao({ id: 'outro', horarioFixoId: 'hf2', inicio: '2026-11-24T18:00:00.000Z', dataOcorrencia: '2026-11-24' }),
+    sessao({ id: 'avulsa', origem: 'avulsa', horarioFixoId: null, dataOcorrencia: null, inicio: '2026-11-25T13:00:00.000Z' }),
+  ];
+  const quinta = { id: 'hf9', diaSemana: 4, validoDe: '2026-11-10' };
+  const base = { sessoes, antigoId: 'hf1', novo: quinta, aPartirDe: '2026-11-10' };
+
+  it('antes da hora da sessão do dia, ela também sai; o resto mexido à mão fica e ocupa a semana do horário novo', () => {
+    const plano = planejarMudancaDeHorario({ ...base, agora: '2026-11-10T15:00:00.000Z' }); // 12:00 em São Paulo
+
+    expect(plano.remover.sort()).toEqual(['2026-11-10', '2026-11-24']);
+    expect(plano.ocupar).toEqual([
+      { id: '2026-11-17', dataOcorrencia: '2026-11-19' },
+      { id: '2026-12-01', dataOcorrencia: '2026-12-03' },
+      { id: '2026-12-08', dataOcorrencia: '2026-12-10' },
+    ]);
+  });
+
+  it('depois da hora, a sessão do dia já aconteceu: fica, e a quinta dessa semana não é gerada', () => {
+    const plano = planejarMudancaDeHorario({ ...base, agora: '2026-11-10T19:00:00.000Z' }); // 16:00 em São Paulo
+
+    expect(plano.remover).toEqual(['2026-11-24']);
+    expect(plano.ocupar[0]).toEqual({ id: '2026-11-10', dataOcorrencia: '2026-11-12' });
+  });
+
+  it('o que veio antes de aPartirDe não entra: nem sai, nem ocupa', () => {
+    const plano = planejarMudancaDeHorario({ ...base, aPartirDe: '2026-11-18', novo: { ...quinta, validoDe: '2026-11-18' }, agora: '2026-11-10T15:00:00.000Z' });
+
+    expect(plano.remover).toEqual(['2026-11-24']);
+    expect(plano.ocupar.map((o) => o.id)).toEqual(['2026-12-01', '2026-12-08']);
+  });
+
+  it('só ocupa o dia do horário novo que ainda pode ser gerado (dele em diante e de hoje em diante)', () => {
+    // Segunda: a segunda da semana de 10/11 é 09/11, antes de o horário novo valer.
+    const segunda = { id: 'hf9', diaSemana: 1, validoDe: '2026-11-10' };
+    const plano = planejarMudancaDeHorario({ ...base, novo: segunda, agora: '2026-11-10T19:00:00.000Z' });
+    expect(plano.ocupar.map((o) => o.dataOcorrencia)).toEqual(['2026-11-16', '2026-11-30', '2026-12-07']);
+
+    // Com a data no passado, nada de ocupar semanas que já ficaram para trás.
+    const atrasada = planejarMudancaDeHorario({
+      ...base,
+      aPartirDe: '2026-11-03',
+      novo: { ...quinta, validoDe: '2026-11-03' },
+      agora: '2026-11-20T15:00:00.000Z', // sexta, 20/11: a semana de 19/11 já passou
+    });
+    expect(atrasada.ocupar.map((o) => o.dataOcorrencia)).toEqual(['2026-12-03', '2026-12-10']);
+    // Nada que já passou sai da agenda.
+    expect(atrasada.remover).toEqual(['2026-11-24']);
+  });
+
+  it('no mesmo dia da semana, ocupa a mesma data; o que já ocupa o lugar certo não muda', () => {
+    const terca15 = { id: 'hf9', diaSemana: 2, validoDe: '2026-11-10' };
+    const plano = planejarMudancaDeHorario({ ...base, novo: terca15, agora: '2026-11-10T15:00:00.000Z' });
+    expect(plano.ocupar[0]).toEqual({ id: '2026-11-17', dataOcorrencia: '2026-11-17' });
+
+    // Troca no lugar (o mesmo horário, só a hora muda): as ocorrências já estão onde deviam.
+    const noLugar = planejarMudancaDeHorario({ ...base, novo: { ...terca15, id: 'hf1' }, agora: '2026-11-10T15:00:00.000Z' });
+    expect(noLugar.ocupar).toEqual([]);
   });
 });

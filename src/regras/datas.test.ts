@@ -10,6 +10,7 @@ import {
   horaLocal,
   inicioDaSemana,
   instanteDe,
+  mesmoDiaNaSemana,
   somarDias,
 } from './datas';
 
@@ -39,6 +40,15 @@ describe('datas (fuso America/Sao_Paulo)', () => {
     expect(inicioDaSemana('2026-11-08')).toBe('2026-11-02'); // domingo → segunda anterior
     expect(inicioDaSemana('2026-11-02')).toBe('2026-11-02'); // segunda → ela mesma
     expect(inicioDaSemana('2026-11-05')).toBe('2026-11-02');
+  });
+
+  it('mesmoDiaNaSemana acha o dia pedido na semana (segunda a domingo) da data', () => {
+    expect(mesmoDiaNaSemana('2026-11-17', 4)).toBe('2026-11-19'); // terça → quinta da mesma semana
+    expect(mesmoDiaNaSemana('2026-11-17', 1)).toBe('2026-11-16'); // terça → segunda, antes dela
+    expect(mesmoDiaNaSemana('2026-11-17', 2)).toBe('2026-11-17'); // o próprio dia
+    expect(mesmoDiaNaSemana('2026-11-17', 0)).toBe('2026-11-22'); // o domingo fecha a semana
+    expect(mesmoDiaNaSemana('2026-11-22', 2)).toBe('2026-11-17'); // do domingo, volta para a terça
+    expect(mesmoDiaNaSemana('2026-12-29', 5)).toBe('2027-01-01'); // atravessa o ano
   });
 
   it('somarDias atravessa meses e anos', () => {

@@ -222,6 +222,28 @@ describe('SecaoHorarios', () => {
       expect((await repositorio.obterFicha(ANA))!.horarios).toHaveLength(1);
     });
 
+    it('recusa data no passado (um dia antes, ou um ano digitado errado) e não muda nada', async () => {
+      const { repositorio, usuaria, secao } = await prepararAna();
+      const antes = await repositorio.listarSessoesDoPaciente(ANA);
+
+      await usuaria.click(within(secao).getByRole('button', { name: 'Mudar horário' }));
+      const data = within(secao).getByLabelText('A partir de quando?');
+      // O calendário do aparelho já começa em hoje.
+      expect(data).toHaveAttribute('min', HOJE);
+      await usuaria.selectOptions(within(secao).getByLabelText('Dia da semana'), 'Quinta');
+
+      for (const passada of ['2025-11-03', '2026-11-01']) {
+        await usuaria.clear(data);
+        await usuaria.type(data, passada);
+        await usuaria.click(within(secao).getByRole('button', { name: 'Aplicar mudança' }));
+
+        expect(await within(secao).findByText('Escolha hoje ou uma data futura.')).toBeInTheDocument();
+        expect(data).toBeInvalid();
+      }
+      expect((await repositorio.obterFicha(ANA))!.horarios).toHaveLength(1);
+      expect(await repositorio.listarSessoesDoPaciente(ANA)).toEqual(antes);
+    });
+
     it('Cancelar fecha a pergunta sem mudar nada', async () => {
       const { repositorio, usuaria, secao } = await prepararAna();
 

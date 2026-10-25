@@ -3,12 +3,13 @@ import type {
   Bloqueio,
   DataISO,
   HorarioComPaciente,
+  HorarioFixo,
   Id,
   NovaSessao,
   Sessao,
   SituacaoSessao,
 } from '../dominio/tipos';
-import { dataLocal, diaDaSemana, entre, instanteDe, somarDias } from './datas';
+import { dataLocal, diaDaSemana, entre, instanteDe, mesmoDiaNaSemana, somarDias } from './datas';
 
 /** Identifica uma ocorrência de horário fixo numa data (evita gerar a mesma sessão duas vezes). */
 export function chaveOcorrencia(horarioFixoId: Id, d: DataISO): string {
@@ -120,4 +121,47 @@ export function selecionarAgendadas(
       return dia >= f.de && (f.ate === undefined || dia <= f.ate);
     })
     .map((s) => s.id);
+}
+
+/**
+ * O que a troca do horário fixo `antigoId` pelo `novo`, a partir de `aPartirDe`, faz com as sessões dele
+ * daquele dia em diante (dia local de São Paulo).
+ *
+ * - `remover`: as ainda agendadas que não aconteceram (`inicio` depois de `agora`): o horário novo gera as dele.
+ * - `ocupar`: as que ficam — já aconteceram (agendadas cujo horário passou) ou foram mexidas à mão (canceladas,
+ *   remarcadas, faltas, comparecimentos). A semana (segunda a domingo) de cada uma já tem a sua sessão, então ela
+ *   passa a ocupar a ocorrência do horário novo nessa semana (`dataOcorrencia` = o dia do horário novo). Como a
+ *   ocorrência fica gravada, o horário novo não a gera agora nem quando a agenda for completada depois.
+ *   Só entram os dias que a agenda ainda poderia gerar: de `novo.validoDe` e de hoje em diante.
+ */
+export function planejarMudancaDeHorario(e: {
+  sessoes: Sessao[];
+  antigoId: Id;
+  novo: Pick<HorarioFixo, 'id' | 'diaSemana' | 'validoDe'>;
+  aPartirDe: DataISO;
+  /** Instante ISO de agora. */
+  agora: string;
+}): { remover: Id[]; ocupar: { id: Id; dataOcorrencia: DataISO }[] } {
+  const agora = Date.parse(e.agora);
+  const hoje = dataLocal(e.agora);
+  const primeiroDia = e.novo.validoDe > hoje ? e.novo.validoDe : hoje;
+  const remover: Id[] = [];
+  const ocupar: { id: Id; dataOcorrencia: DataISO }[] = [];
+  const ocupados = new Set<DataISO>();
+
+  for (const s of e.sessoes) {
+    if (s.horarioFixoId !== e.antigoId || s.origem !== 'fixa') continue;
+    const dia = dataLocal(s.inicio);
+    if (dia < e.aPartirDe) continue;
+    if (s.situacao === 'agendada' && Date.parse(s.inicio) > agora) {
+      remover.push(s.id);
+      continue;
+    }
+    const noNovo = mesmoDiaNaSemana(dia, e.novo.diaSemana);
+    if (noNovo < primeiroDia || ocupados.has(noNovo)) continue;
+    ocupados.add(noNovo);
+    if (s.horarioFixoId === e.novo.id && s.dataOcorrencia === noNovo) continue;
+    ocupar.push({ id: s.id, dataOcorrencia: noNovo });
+  }
+  return { remover, ocupar };
 }

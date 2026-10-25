@@ -1,7 +1,7 @@
 import type { Repositorio } from '../dados/repositorio';
 import type { Bloqueio, DataISO, Id, Sessao, SituacaoSessao } from '../dominio/tipos';
 import { chaveOcorrencia, gerarOcorrencias, selecionarAgendadas } from '../regras/agenda';
-import { dataLocal, somarDias } from '../regras/datas';
+import { dataLocal, inicioDaSemana, somarDias } from '../regras/datas';
 import { exigirFicha } from './comum';
 
 /**
@@ -14,7 +14,9 @@ export async function garantirAgenda(repo: Repositorio, hoje: DataISO, semanas: 
   const [horarios, bloqueios, sessoes] = await Promise.all([
     repo.listarHorariosVigentes(hoje, ate),
     repo.listarBloqueios(),
-    repo.listarSessoes(hoje, ate),
+    // Semanas inteiras: depois de uma troca de horário, a ocorrência do horário novo pode estar ocupada por uma
+    // sessão de outro dia da mesma semana (veja `planejarMudancaDeHorario`).
+    repo.listarSessoes(inicioDaSemana(hoje), somarDias(inicioDaSemana(ate), 6)),
   ]);
   // Sessão de qualquer situação conta: ocorrência cancelada ou remarcada nunca é recriada.
   const existentes = new Set(

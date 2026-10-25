@@ -1,4 +1,5 @@
 import type { DataISO, Etapa, FormaCobranca, Paciente, Responsavel } from '../dominio/tipos';
+import { formatarData } from './datas';
 import { centavosParaCampo, lerReais } from './dinheiro';
 import { apenasDigitos, cpfCompleto, normalizarParaBusca, telefoneCompleto } from './texto';
 
@@ -155,6 +156,17 @@ export function validarHorario(v: ValoresHorario): Resultado<ErrosHorario, Dados
   }
   if (Object.keys(erros).length > 0) return { erros, dados: null };
   return ok({ diaSemana: Number(v.diaSemana), hora: v.hora, duracaoMin: duracao });
+}
+
+/**
+ * "A partir de quando?" da troca de horário fixo: uma data de hoje em diante, e não antes de o horário
+ * atual começar a valer (o que já aconteceu não muda). Devolve o aviso, ou `undefined` quando a data serve.
+ */
+export function avisoDaMudancaDeHorario(aPartirDe: string, hoje: DataISO, validoDe: DataISO): string | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(aPartirDe)) return 'Informe a partir de quando vale o novo horário.';
+  if (aPartirDe < hoje) return 'Escolha hoje ou uma data futura.';
+  if (aPartirDe < validoDe) return `A mudança não pode começar antes de ${formatarData(validoDe)}.`;
+  return undefined;
 }
 
 // ---------------------------------------------------------------- avaliação
