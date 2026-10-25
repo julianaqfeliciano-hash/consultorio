@@ -144,6 +144,59 @@ describe('TelaConfiguracoes', () => {
     expect((await repositorio.obterConfiguracoes())?.duracaoPadraoMin).toBe(50);
   });
 
+  it.each([
+    ['Semanas geradas', '13', 'Use um número de 1 a 12.', 'semanasGeradas', 4],
+    ['Semanas geradas', '400', 'Use um número de 1 a 12.', 'semanasGeradas', 4],
+    ['Duração padrão da sessão', '481', 'Use um número de 1 a 480.', 'duracaoPadraoMin', 50],
+    ['Sessões da avaliação', '100', 'Use um número de 1 a 99.', 'sessoesAvaliacaoPadrao', 10],
+  ] as const)('"%s" = %s passa do limite: avisa "%s" e não salva', async (rotulo, valor, aviso, chave, gravado) => {
+    const { repositorio } = renderComRotas(CAMINHO);
+    const usuaria = await trocarValor(rotulo, valor);
+
+    await usuaria.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    const campo = screen.getByLabelText(rotulo);
+    expect(await screen.findByText(aviso)).toBeInTheDocument();
+    expect(campo).toHaveAccessibleDescription(expect.stringContaining(aviso));
+    expect(campo).toBeInvalid();
+    expect(screen.queryByText('Configurações salvas.')).not.toBeInTheDocument();
+    expect((await repositorio.obterConfiguracoes())?.[chave]).toBe(gravado);
+  });
+
+  it('os próprios limites (12 semanas, 480 minutos, 99 sessões) são aceitos', async () => {
+    const { repositorio } = renderComRotas(CAMINHO);
+    const usuaria = await trocarValor('Semanas geradas', '12');
+    await trocarValor('Duração padrão da sessão', '480');
+    await trocarValor('Sessões da avaliação', '99');
+
+    await usuaria.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    expect(await screen.findByText('Configurações salvas.')).toBeInTheDocument();
+    expect(await repositorio.obterConfiguracoes()).toMatchObject({
+      semanasGeradas: 12,
+      duracaoPadraoMin: 480,
+      sessoesAvaliacaoPadrao: 99,
+    });
+    // O teclado e o navegador também conhecem o limite.
+    expect(screen.getByLabelText('Semanas geradas')).toHaveAttribute('max', '12');
+    expect(screen.getByLabelText('Duração padrão da sessão')).toHaveAttribute('max', '480');
+    expect(screen.getByLabelText('Sessões da avaliação')).toHaveAttribute('max', '99');
+  });
+
+  it.each([['Nome completo'], ['Mensagem do WhatsApp']])('"%s" em branco: avisa "Preencha este campo." e não salva', async (rotulo) => {
+    const { repositorio } = renderComRotas(CAMINHO);
+    const usuaria = await trocarValor(rotulo, '   ');
+
+    await usuaria.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    const campo = screen.getByLabelText(rotulo);
+    expect(await screen.findByText('Preencha este campo.')).toBeInTheDocument();
+    expect(campo).toHaveAccessibleDescription(expect.stringContaining('Preencha este campo.'));
+    expect(campo).toBeInvalid();
+    expect(screen.queryByText('Configurações salvas.')).not.toBeInTheDocument();
+    expect(await repositorio.obterConfiguracoes()).toEqual(CONFIGURACOES_PADRAO);
+  });
+
   it('corrigir o número e salvar de novo tira o aviso e grava', async () => {
     const { repositorio } = renderComRotas(CAMINHO);
     const usuaria = await trocarValor('Duração padrão da sessão', '0');
