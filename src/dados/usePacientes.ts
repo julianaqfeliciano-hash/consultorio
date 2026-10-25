@@ -2,16 +2,17 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Paciente } from '../dominio/tipos';
 import type { Rascunho } from './repositorio';
 import { hojeISO } from '../regras/datas';
+import { ordenarPorNome } from '../regras/texto';
 import { criarPaciente } from '../servicos/pacientes';
 import { useRepositorio } from './contexto';
 import { useConfiguracoes } from './useConfiguracoes';
 
 export const CHAVE_PACIENTES = ['pacientes'] as const;
 
-/** Todos os pacientes, em ordem alfabética (a lista agrupa e filtra no aparelho). */
+/** Todos os pacientes, em ordem alfabética feita no aparelho (a lista agrupa e filtra no aparelho). */
 export function usePacientes() {
   const repositorio = useRepositorio();
-  return useQuery({ queryKey: CHAVE_PACIENTES, queryFn: () => repositorio.listarPacientes() });
+  return useQuery({ queryKey: CHAVE_PACIENTES, queryFn: () => repositorio.listarPacientes(), select: ordenarPorNome });
 }
 
 /**

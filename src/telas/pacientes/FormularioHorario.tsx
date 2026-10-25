@@ -20,9 +20,10 @@ interface Props {
   aoConcluir: () => void;
   aoCancelar: () => void;
   /**
-   * Só ao trocar um horário: chamado quando a troca falha. A troca tem várias gravações e pode ter
-   * ficado pela metade, então quem usa fecha o formulário (o horário antigo já pode estar terminado)
-   * e mostra a lista como ficou, em vez de deixar tentar de novo em cima de dados velhos.
+   * Só ao trocar um horário: chamado quando a troca falha, mesmo que o formulário já tenha saído da tela.
+   * A troca tem várias gravações e pode ter ficado pela metade, então quem usa fecha o formulário (o horário
+   * antigo já pode estar terminado) e mostra, num lugar que continua na tela, a lista como ficou e o aviso,
+   * em vez de deixar tentar de novo em cima de dados velhos.
    */
   aoFalhar?: () => void;
 }
@@ -73,7 +74,10 @@ export function FormularioHorario({ pacienteId, horario, aoConcluir, aoCancelar,
       setSemMudanca(true);
       return;
     }
-    mudar.mutate({ horario, novo: lido.dados, aPartirDe }, { onSuccess: aoConcluir, onError: aoFalhar });
+    // Pela promessa, não pelos callbacks do `mutate`: a ficha é relida no fim (e pode ser relida antes, quando
+    // o aparelho volta ao aplicativo), o horário antigo pode sair da lista e este formulário com ele. Os callbacks
+    // do `mutate` não rodam depois disso; a promessa, sim, e quem mostra o aviso continua na tela.
+    mudar.mutateAsync({ horario, novo: lido.dados, aPartirDe }).then(aoConcluir, () => aoFalhar?.());
   }
 
   const hoje = hojeISO();

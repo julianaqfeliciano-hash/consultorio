@@ -1,4 +1,5 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
+import { focusManager } from '@tanstack/react-query';
 import { criarRepositorioMemoria } from '../../dados/memoria';
 import type { Repositorio } from '../../dados/repositorio';
 import { garantirAgenda } from '../../servicos/agenda';
@@ -294,6 +295,41 @@ describe('SecaoHorarios', () => {
         [2, '2026-11-01'],
         [4, null],
       ]);
+    });
+  });
+
+  describe('mudar horário: aviso de falha', () => {
+    afterEach(() => focusManager.setFocused(undefined));
+
+    it('aparece mesmo quando a ficha foi relida no meio da troca e o formulário já saiu da lista', async () => {
+      const base = repositorioDemo();
+      await garantirAgenda(base, HOJE, 4);
+      // A última etapa da troca (gerar as sessões novas) fica pendente até o teste mandar falhar.
+      let falhar: (erro: Error) => void = () => {};
+      const inserirOcorrencias = vi.fn(
+        () =>
+          new Promise<number>((_resolver, rejeitar) => {
+            falhar = rejeitar;
+          }),
+      );
+      const { usuaria, secao } = await abrirSecao(ANA, { ...base, inserirOcorrencias });
+
+      await usuaria.click(within(secao).getByRole('button', { name: 'Mudar horário' }));
+      await usuaria.selectOptions(within(secao).getByLabelText('Dia da semana'), 'Quinta');
+      await usuaria.click(within(secao).getByRole('button', { name: 'Aplicar mudança' }));
+      await waitFor(() => expect(inserirOcorrencias).toHaveBeenCalled());
+
+      // Ela sai do aplicativo e volta: a ficha é relida. O horário antigo já terminou ontem e sai da lista,
+      // levando o formulário junto.
+      act(() => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+      });
+      await waitFor(() => expect(within(secao).queryByLabelText('A partir de quando?')).not.toBeInTheDocument());
+
+      await act(async () => falhar(new Error('sem rede')));
+
+      expect(await within(secao).findByRole('alert')).toHaveTextContent('Não foi possível mudar o horário.');
     });
   });
 

@@ -19,7 +19,7 @@ import { PainelSessao } from './PainelSessao';
 type Dialogo = 'avulsa' | 'bloqueio';
 
 /**
- * A agenda: o aviso e a lista de amanhã, a semana (um dia por vez no celular, sete colunas a partir de 768 px),
+ * A agenda: o aviso e a lista de amanhã, a semana (um dia por vez no celular, sete colunas a partir de 1024 px),
  * o painel da sessão, a sessão avulsa e o bloqueio de dias. Ao abrir, completa as próximas semanas a partir dos horários fixos.
  */
 export function TelaAgenda() {

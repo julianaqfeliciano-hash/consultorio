@@ -1,14 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Id, Parceiro } from '../dominio/tipos';
+import { ordenarPorNome } from '../regras/texto';
 import { useRepositorio } from './contexto';
 import type { Rascunho } from './repositorio';
 
 const CHAVE = ['parceiros'] as const;
 
-/** Os parceiros (médicos e psicólogos que encaminham pacientes), em ordem alfabética. */
+/** Os parceiros (médicos e psicólogos que encaminham pacientes), em ordem alfabética feita no aparelho. */
 export function useParceiros() {
   const repositorio = useRepositorio();
-  return useQuery({ queryKey: CHAVE, queryFn: () => repositorio.listarParceiros() });
+  return useQuery({ queryKey: CHAVE, queryFn: () => repositorio.listarParceiros(), select: ordenarPorNome });
 }
 
 /** Cria (sem `id`) ou atualiza (com `id`) um parceiro. */

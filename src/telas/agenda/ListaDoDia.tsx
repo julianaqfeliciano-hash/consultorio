@@ -82,6 +82,7 @@ export function ListaDoDia({ agendaPronta }: ListaDoDiaProps) {
         aberta={dia !== null}
         onFechar={() => setDia(null)}
         titulo={dia === null ? '' : dia === amanha ? `Amanhã, ${diaPorExtenso(dia)}` : diaPorExtenso(dia)}
+        tituloEmTexto
         retornarFocoPara={gatilho}
       >
         {dia !== null && <SessoesDoDia dia={dia} aoMudarDia={setDia} />}

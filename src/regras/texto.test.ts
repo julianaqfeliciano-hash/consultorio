@@ -5,6 +5,7 @@ import {
   mascararCpf,
   mascararTelefone,
   normalizarParaBusca,
+  ordenarPorNome,
   telefoneCompleto,
 } from './texto';
 
@@ -95,5 +96,20 @@ describe('cpfCompleto', () => {
     expect(cpfCompleto('123.456.789-01')).toBe(true);
     expect(cpfCompleto('123.456.789')).toBe(false);
     expect(cpfCompleto('')).toBe(false);
+  });
+});
+
+describe('ordenarPorNome', () => {
+  const nomes = (lista: string[]) => ordenarPorNome(lista.map((nome) => ({ nome }))).map((x) => x.nome);
+
+  it('ordem alfabética do português, sem diferenciar acentos nem maiúsculas', () => {
+    expect(nomes(['Zeca', 'Ágata'])).toEqual(['Ágata', 'Zeca']);
+    expect(nomes(['Zeca', 'bruno', 'Érica', 'Álvaro', 'Ágata'])).toEqual(['Ágata', 'Álvaro', 'bruno', 'Érica', 'Zeca']);
+  });
+
+  it('devolve uma lista nova, sem mexer na recebida', () => {
+    const lista = [{ nome: 'Zeca' }, { nome: 'Ágata' }];
+    ordenarPorNome(lista);
+    expect(lista.map((x) => x.nome)).toEqual(['Zeca', 'Ágata']);
   });
 });

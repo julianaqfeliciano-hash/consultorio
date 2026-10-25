@@ -37,6 +37,20 @@ describe('TelaPacientes — lista', () => {
     expect(within(grupo('Lista de espera (1)')).getByRole('link', { name: /Lucas Oliveira/ })).toBeInTheDocument();
   });
 
+  it('a ordem alfabética não depende do banco: "Ágata" vem antes de "Zeca"', async () => {
+    const base = criarRepositorioMemoria();
+    const zeca = await base.salvarPaciente(dadosPacienteExemplo({ nome: 'Zeca Moura' }));
+    const agata = await base.salvarPaciente(dadosPacienteExemplo({ nome: 'Ágata Lins' }));
+    // Como um banco com ordenação por código de letra devolveria ("Á" depois de "Z").
+    abrirLista({ ...base, listarPacientes: async () => [zeca, agata] });
+
+    await screen.findByRole('link', { name: /Zeca Moura/ });
+    expect(screen.getAllByRole('link', { name: /Moura|Lins/ }).map((l) => l.textContent)).toEqual([
+      expect.stringContaining('Ágata Lins'),
+      expect.stringContaining('Zeca Moura'),
+    ]);
+  });
+
   it('paciente com alta aparece no grupo Alta', async () => {
     const repositorio = criarRepositorioMemoria({
       pacientes: [{ id: 'p1', ...dadosPacienteExemplo({ nome: 'Beatriz Alves', status: 'alta', dataAlta: '2026-10-20' }) }],

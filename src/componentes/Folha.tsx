@@ -8,6 +8,11 @@ interface FolhaProps {
   /** Nome do diálogo (também é o título que aparece no topo). */
   titulo: string;
   /**
+   * O título é uma data: vai em Nunito Sans, a fonte das informações, em vez da Prata dos títulos
+   * (na Prata o "1" parece um "l" e "11/11" vira "ll/ll").
+   */
+  tituloEmTexto?: boolean;
+  /**
    * Elemento que abriu a folha e que recebe o foco de volta ao fechar. Guarde-o numa ref quando a pessoa
    * tocar nele: depois de um clique do mouse no Safari o foco não vai para o botão, então `document.activeElement`
    * não serve. Sem isto, volta ao que tinha o foco na hora de abrir (se havia algum).
@@ -29,7 +34,15 @@ const FOCAVEIS = 'a[href], button:not(:disabled), input:not(:disabled), select:n
  * à direita a partir de 768 px. É um diálogo modal: o foco entra nela ao abrir e fica preso até fechar
  * (Esc, o botão "Fechar" ou um toque no fundo), quando volta a quem abriu. Fechada, não monta nada.
  */
-export function Folha({ aberta, onFechar, titulo, retornarFocoPara, travada = false, children }: FolhaProps) {
+export function Folha({
+  aberta,
+  onFechar,
+  titulo,
+  tituloEmTexto = false,
+  retornarFocoPara,
+  travada = false,
+  children,
+}: FolhaProps) {
   const idTitulo = useId();
   const caixa = useRef<HTMLDivElement>(null);
 
@@ -94,7 +107,7 @@ export function Folha({ aberta, onFechar, titulo, retornarFocoPara, travada = fa
         ].join(' ')}
       >
         <header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-verde-claro bg-creme p-4">
-          <h2 id={idTitulo} className="text-2xl">
+          <h2 id={idTitulo} className={tituloEmTexto ? 'font-texto text-2xl font-semibold' : 'text-2xl'}>
             {titulo}
           </h2>
           <Botao variante="secundario" disabled={travada} onClick={onFechar}>

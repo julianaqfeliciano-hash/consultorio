@@ -69,7 +69,8 @@ function ColunaDia({ dia, sessoes, hoje, aoAbrirSessao }: ColunaDiaProps) {
   return (
     <section aria-labelledby={idTitulo} className="flex min-w-0 flex-col gap-2">
       <div className="flex flex-wrap items-center gap-x-2">
-        <h2 id={idTitulo} className="text-lg first-letter:uppercase lg:text-base">
+        {/* Data em Nunito Sans: na Prata o "1" parece um "l" (11/11 vira "ll/ll"). */}
+        <h2 id={idTitulo} className="font-texto text-lg font-semibold first-letter:uppercase lg:text-base">
           {diaPorExtenso(dia)}
         </h2>
         {dia === hoje && <span className="rounded-full bg-amarelo px-2 text-sm font-semibold">Hoje</span>}

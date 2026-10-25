@@ -16,6 +16,16 @@ export function normalizarParaBusca(texto: string): string {
     .replace(/\s+/g, ' ');
 }
 
+const COMPARAR_NOMES = new Intl.Collator('pt-BR', { sensitivity: 'base' });
+
+/**
+ * Cópia da lista em ordem alfabética do português, sem diferenciar acentos nem maiúsculas ("Ágata" antes de
+ * "Zeca"). A ordem fica no aparelho, então não depende da ordenação (collation) do banco.
+ */
+export function ordenarPorNome<T extends { nome: string }>(itens: readonly T[]): T[] {
+  return [...itens].sort((a, b) => COMPARAR_NOMES.compare(a.nome, b.nome));
+}
+
 /**
  * Telefone com a máscara '(85) 98823-2033' (celular, 11 dígitos) ou '(85) 3222-1100' (fixo, 10).
  * Serve para formatar enquanto se digita. O código do país (55) é descartado quando o número vem completo.

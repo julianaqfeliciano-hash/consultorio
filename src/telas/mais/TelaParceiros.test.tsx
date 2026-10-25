@@ -29,6 +29,17 @@ describe('TelaParceiros', () => {
     expect(screen.getByRole('button', { name: 'Adicionar parceiro' })).toBeInTheDocument();
   });
 
+  it('a ordem alfabética não depende do banco: "Ágata" vem antes de "Zeca"', async () => {
+    const zeca: Parceiro = { ...ZE, id: 'z', nome: 'Zeca Moura' };
+    const agata: Parceiro = { ...ZE, id: 'a', nome: 'Ágata Lins' };
+    const base = criarRepositorioMemoria({ parceiros: [zeca, agata] });
+    // Como um banco com ordenação por código de letra devolveria ("Á" depois de "Z").
+    renderComRotas(CAMINHO, { repositorio: { ...base, listarParceiros: async () => [zeca, agata] } });
+
+    const itens = await screen.findAllByRole('listitem');
+    expect(itens.map((i) => i.textContent)).toEqual([expect.stringContaining('Ágata Lins'), expect.stringContaining('Zeca Moura')]);
+  });
+
   it('lista os parceiros em ordem alfabética, com profissão, contato e observações', async () => {
     comParceiros(ZE, MARTA);
 
