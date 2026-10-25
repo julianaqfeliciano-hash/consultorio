@@ -57,6 +57,23 @@ describe('preencherMensagem', () => {
     ).toBe('Olá, Marta! Ana às 14:00. {outro}');
   });
 
+  it('aceita o campo sem acento ou com maiúsculas, como se digita no celular', () => {
+    const campos = { 'responsável': 'Marta', hora: '14:00' };
+    expect(preencherMensagem('Olá, {responsavel}!', campos)).toBe('Olá, Marta!');
+    expect(preencherMensagem('Olá, {RESPONSÁVEL}!', campos)).toBe('Olá, Marta!');
+    expect(preencherMensagem('Olá, {Responsável}!', campos)).toBe('Olá, Marta!');
+    expect(preencherMensagem('Às {Hora}.', campos)).toBe('Às 14:00.');
+    expect(preencherMensagem('Às { hora }.', campos)).toBe('Às 14:00.');
+  });
+
+  it('o nome do campo também vale sem acento do lado de quem chama', () => {
+    expect(preencherMensagem('{responsável}', { responsavel: 'Marta' })).toBe('Marta');
+  });
+
+  it('campos desconhecidos continuam como foram digitados, com a grafia original', () => {
+    expect(preencherMensagem('{Outro} e {responsavel}', { 'responsável': 'Marta' })).toBe('{Outro} e Marta');
+  });
+
   it('troca todas as ocorrências do mesmo campo', () => {
     expect(preencherMensagem('{hora} e {hora}', { hora: '09:00' })).toBe('09:00 e 09:00');
   });

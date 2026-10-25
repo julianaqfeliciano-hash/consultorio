@@ -1,4 +1,4 @@
-import { apenasDigitos } from './texto';
+import { apenasDigitos, normalizarParaBusca } from './texto';
 
 /**
  * Telefone no formato que o `wa.me` pede: só números, com o código do país (55).
@@ -23,14 +23,15 @@ export function primeiroNome(nome: string): string {
 }
 
 /**
- * Troca cada `{campo}` do modelo pelo valor de `campos`. Campos que não existem em `campos` ficam
- * como estão (a pessoa vê o erro de digitação em vez de uma mensagem com buraco). O valor entra
- * como texto: não é procurado de novo nem interpreta símbolos como `$&`.
+ * Troca cada `{campo}` do modelo pelo valor de `campos`. O nome do campo não diferencia maiúsculas nem
+ * acentos ('{responsavel}', '{Responsável}' e '{RESPONSÁVEL}' são o mesmo campo), porque o modelo é digitado
+ * no celular. Campos que não existem em `campos` ficam como foram digitados (a pessoa vê o erro em vez de
+ * uma mensagem com buraco). O valor entra como texto: não é procurado de novo e não interpreta `$&`.
  */
 export function preencherMensagem(modelo: string, campos: Record<string, string>): string {
-  return modelo.replace(/\{([^{}]+)\}/g, (trecho, nome: string) =>
-    Object.hasOwn(campos, nome) ? campos[nome] : trecho,
-  );
+  // Um Map só tem as chaves de `campos`: '{constructor}' não é resolvido a partir do protótipo.
+  const valores = new Map(Object.entries(campos).map(([nome, valor]) => [normalizarParaBusca(nome), valor]));
+  return modelo.replace(/\{([^{}]+)\}/g, (trecho, nome: string) => valores.get(normalizarParaBusca(nome)) ?? trecho);
 }
 
 /** Link que abre a conversa no WhatsApp com a mensagem pronta; null quando o telefone não serve. */
