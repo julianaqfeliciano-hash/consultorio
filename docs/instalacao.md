@@ -19,7 +19,8 @@ Você faz tudo **uma vez só**, e leva cerca de 40 minutos. Não precisa saber p
 
 > **Aviso sobre os nomes na tela.** O Supabase e o Cloudflare mudam o desenho dos seus painéis de tempos em tempos.
 > Se um botão estiver num lugar um pouco diferente do que está escrito aqui, procure pelo **nome** dele (entre aspas):
-> costuma estar ali perto. Se travar, tire um print da tela e mostre para quem está te ajudando.
+> costuma estar ali perto. Se travar, tire um print da tela e mostre para quem está te ajudando
+> (cuidado para o print não mostrar senhas nem a chave secret).
 
 ---
 
@@ -78,7 +79,8 @@ um texto pronto, que está guardado no repositório do GitHub. Você vai copiá-
 - Aparece **“already exists”** (já existe): o texto já tinha sido rodado antes neste projeto. **Não rode de novo.**
 - O texto foi colado pela metade. Volte ao passo 4, copie de novo e cole numa consulta nova.
 
-Se não resolver, tire um print do erro e peça ajuda antes de seguir.
+Se não resolver, tire um print do erro e peça ajuda antes de seguir
+(cuidado para o print não mostrar senhas nem a chave secret).
 
 ### 1.4 Criar o seu login
 
@@ -252,18 +254,25 @@ Se ela se perdeu, defina uma nova no Supabase, **sem apagar o usuário**:
 1. Abra o Supabase, entre no projeto `consultorio` e vá em **Authentication → Users**.
 2. Clique no seu e-mail na lista e procure uma opção para definir ou redefinir a senha.
    (O e-mail de recuperação **não funciona** neste sistema: ainda não existe a tela para digitar a nova senha.)
-3. Se não houver essa opção, vá em **SQL Editor → New query**, cole o texto abaixo, troque **só** `seu@email.com`
-   pelo seu e-mail e `NovaSenhaForte123!` pela nova senha (mantenha as aspas) e clique em **Run**:
+3. Se não houver essa opção, vá em **SQL Editor → New query** e cole o texto abaixo. Troque **só**
+   `COLE-AQUI-A-NOVA-SENHA` pela nova senha e `seu@email.com` pelo seu e-mail, mantendo as aspas simples em volta
+   dos dois, e clique em **Run**:
 
    ```sql
    update auth.users
-   set encrypted_password = crypt('NovaSenhaForte123!', gen_salt('bf'))
-   where email = 'seu@email.com'
+   set encrypted_password = crypt('COLE-AQUI-A-NOVA-SENHA', gen_salt('bf'))
+   where lower(email) = lower('seu@email.com')
    returning email;
    ```
 
+   - Na nova senha, **não use o apóstrofo `'`**: ele fecha as aspas antes da hora e o comando dá erro.
+   - O e-mail pode ir com maiúsculas ou minúsculas: o `lower(...)` compara tudo em minúsculas.
+
    Se aparecer uma linha com o seu e-mail, deu certo: entre no sistema com a nova senha.
    Se aparecer “No rows returned” (nenhuma linha), o e-mail digitado não bate com o do usuário: confira e rode de novo.
+4. **Em seguida, apague essa consulta do SQL Editor**, porque ela guarda a senha escrita: na lista de consultas,
+   à esquerda, encontre a que você acabou de rodar (o nome costuma ser “Untitled query”), abra o menu dela e
+   escolha **“Delete”** (apagar).
 
 **Passaram 7 dias sem usar e o sistema não abre (ou dá erro de conexão).**
 O Supabase pausou o projeto para economizar espaço. Seus dados continuam guardados. Abra **https://supabase.com**,
