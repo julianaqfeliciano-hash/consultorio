@@ -8,6 +8,7 @@ import type { SessaoComPaciente } from '../../dados/repositorio';
 import { useAtualizarSessao, useMarcarSituacao } from '../../dados/useAgenda';
 import { ICONE_SITUACAO, tipoVisual } from '../../dominio/rotulos';
 import type { SituacaoSessao } from '../../dominio/tipos';
+import { ehCobravel } from '../../regras/agenda';
 import { dataLocal, diaPorExtenso, horaLocal } from '../../regras/datas';
 import { DestinoDaRemarcacao } from './DestinoDaRemarcacao';
 import { ObservacaoDaSessao } from './ObservacaoDaSessao';
@@ -24,7 +25,8 @@ const BOTOES_DE_SITUACAO: readonly { situacao: SituacaoEscolhivel; rotulo: strin
 ];
 
 /**
- * O que se faz com uma sessão: dizer o que aconteceu, remarcar, marcar como acompanhamento familiar e anotar.
+ * O que se faz com uma sessão: dizer o que aconteceu, remarcar (só a que não é cobrada), marcar como
+ * acompanhamento familiar e anotar.
  * O título (nome do paciente) fica por conta da `Folha` que o envolve. A sessão vem de quem o usa e é
  * atualizada por lá a cada mudança.
  */
@@ -33,6 +35,8 @@ export function PainelSessao({ sessao }: { sessao: SessaoComPaciente }) {
   const familiar = useAtualizarSessao();
   const tipo = tipoVisual(sessao);
   const remarcada = sessao.situacao === 'remarcada';
+  // Sessão já cobrada (compareceu, faltou sem aviso) não é remarcada: viraria "remarcada" e perderia a cobrança.
+  const podeRemarcar = !remarcada && !ehCobravel(sessao.situacao);
   // Enquanto grava, a caixa já mostra a escolha (a sessão só muda quando os dados novos chegam).
   const acompanhamentoFamiliar = familiar.isPending
     ? (familiar.variables.mudancas.acompanhamentoFamiliar ?? sessao.acompanhamentoFamiliar)
@@ -94,7 +98,7 @@ export function PainelSessao({ sessao }: { sessao: SessaoComPaciente }) {
         </fieldset>
       )}
 
-      {!remarcada && <RemarcarSessao sessao={sessao} />}
+      {podeRemarcar && <RemarcarSessao sessao={sessao} />}
 
       <div className="flex flex-col gap-2">
         <CaixaDeMarcar

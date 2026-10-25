@@ -185,6 +185,32 @@ describe('PainelSessao', () => {
       expect(screen.queryByRole('button', { name: 'Voltar para Agendada' })).not.toBeInTheDocument();
     });
 
+    it.each([
+      ['compareceu', false],
+      ['falta_sem_aviso', false],
+      ['agendada', true],
+      ['falta_com_aviso', true],
+      ['cancelada', true],
+    ] as const)('sessão %s: oferece remarcar? %s (a que já é cobrada não pode virar "remarcada")', async (situacao, oferece) => {
+      abrirPainel(repositorioCom(sessaoExemplo({ situacao })));
+
+      await screen.findByText('terça-feira, 03/11 · 14:00 · 50 min');
+      expect(screen.queryByRole('button', { name: 'Remarcar' }) !== null).toBe(oferece);
+      expect(screen.queryByLabelText('Nova data') !== null).toBe(oferece);
+      // A situação continua podendo ser corrigida.
+      expect(screen.getByRole('button', { name: 'Compareceu' })).toBeInTheDocument();
+    });
+
+    it('marcar "Compareceu" tira o remarcar; "Voltar para Agendada" traz de volta', async () => {
+      const { usuaria } = abrirPainel();
+      await usuaria.click(await screen.findByRole('button', { name: 'Compareceu' }));
+      await waitFor(() => expect(screen.queryByRole('button', { name: 'Remarcar' })).not.toBeInTheDocument());
+
+      await usuaria.click(screen.getByRole('button', { name: 'Voltar para Agendada' }));
+
+      expect(await screen.findByRole('button', { name: 'Remarcar' })).toBeInTheDocument();
+    });
+
     it('pede data e hora, e não cria nada quando faltam', async () => {
       const { usuaria, repositorio } = abrirPainel();
 
