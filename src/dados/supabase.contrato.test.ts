@@ -29,8 +29,11 @@ describe.skipIf(!configurado)('Supabase (projeto de teste)', { timeout: 30_000 }
 
   /** Apaga tudo que é do usuário de teste (o RLS já limita a ele). */
   async function limparTudo() {
-    // Pacientes levam junto responsáveis, horários, avaliações e sessões (on delete cascade).
+    // Pagamentos primeiro: as ligações com as sessões são "on delete restrict" e as avaliações
+    // pagas também, então apagar os pacientes antes falharia. As ligações caem junto (cascade).
+    // Depois, pacientes levam responsáveis, horários, avaliações e sessões (on delete cascade).
     for (const [tabela, coluna] of [
+      ['pagamentos', 'id'],
       ['pacientes', 'id'],
       ['parceiros', 'id'],
       ['bloqueios', 'id'],

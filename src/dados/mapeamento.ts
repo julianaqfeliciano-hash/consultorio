@@ -4,10 +4,14 @@ import type {
   Configuracoes,
   Etapa,
   FormaCobranca,
+  FormaPagamento,
   HorarioFixo,
+  NovoPagamento,
   OrigemSessao,
   Paciente,
+  Pagamento,
   Parceiro,
+  ReferenciaPagamento,
   Responsavel,
   Sessao,
   SituacaoSessao,
@@ -135,6 +139,24 @@ export interface LinhaBloqueio {
   fim: string;
   motivo: string;
 }
+
+export interface LinhaPagamento {
+  id: string;
+  paciente_id: string;
+  data: string;
+  valor_centavos: number;
+  forma: FormaPagamento;
+  observacao: string | null;
+  referencia: ReferenciaPagamento;
+  /** Sempre o dia 1; só no pagamento do mês. */
+  mes_referencia: string | null;
+  avaliacao_id: string | null;
+}
+
+/** O pagamento como `select *, pagamento_sessoes(sessao_id)` o devolve. */
+export type LinhaPagamentoComSessoes = LinhaPagamento & {
+  pagamento_sessoes?: { sessao_id: string }[];
+};
 
 // ---------------------------------------------------------------------------
 // Ajudantes
@@ -440,4 +462,58 @@ export function bloqueioParaLinha(b: Rascunho<Bloqueio>): Rascunho<LinhaBloqueio
 
 export function linhaParaBloqueio(l: LinhaBloqueio): Bloqueio {
   return { id: l.id, inicio: l.inicio, fim: l.fim, motivo: l.motivo };
+}
+
+// ---------------------------------------------------------------------------
+// Pagamentos
+// ---------------------------------------------------------------------------
+
+/** A linha de `pagamentos`. As sessões quitadas ficam em `pagamento_sessoes` e não vão nesta linha. */
+export function pagamentoParaLinha(p: Rascunho<Pagamento>): Rascunho<LinhaPagamento> {
+  return {
+    ...comIdOpcional(p.id),
+    paciente_id: p.pacienteId,
+    data: p.data,
+    valor_centavos: p.valorCentavos,
+    forma: p.forma,
+    observacao: p.observacao,
+    referencia: p.referencia,
+    mes_referencia: p.mesReferencia,
+    avaliacao_id: p.avaliacaoId,
+  };
+}
+
+export function linhaParaPagamento(l: LinhaPagamentoComSessoes): Pagamento {
+  return {
+    id: l.id,
+    pacienteId: l.paciente_id,
+    data: l.data,
+    valorCentavos: l.valor_centavos,
+    forma: l.forma,
+    observacao: l.observacao,
+    referencia: l.referencia,
+    mesReferencia: l.mes_referencia,
+    avaliacaoId: l.avaliacao_id,
+    // A ordem do embutido não é garantida: ordenar torna a leitura estável.
+    sessaoIds: (l.pagamento_sessoes ?? []).map((x) => x.sessao_id).sort(),
+  };
+}
+
+/**
+ * Os parâmetros de `registrar_pagamento`. O PostgREST escolhe a função pelo conjunto
+ * exato de nomes e o supabase-js descarta chaves `undefined`: por isso saem sempre os
+ * nove, com `null` nos opcionais e `[]` nas sessões quando o pagamento não é de sessões.
+ */
+export function argumentosRegistrarPagamento(p: NovoPagamento) {
+  return {
+    p_paciente_id: p.pacienteId,
+    p_data: p.data,
+    p_valor_centavos: p.valorCentavos,
+    p_forma: p.forma,
+    p_observacao: p.observacao ?? null,
+    p_referencia: p.referencia,
+    p_mes_referencia: p.mesReferencia ?? null,
+    p_avaliacao_id: p.avaliacaoId ?? null,
+    p_sessao_ids: p.referencia === 'sessoes' ? [...p.sessaoIds] : [],
+  };
 }

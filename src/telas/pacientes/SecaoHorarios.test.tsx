@@ -155,6 +155,8 @@ describe('SecaoHorarios', () => {
   describe('mudar horário', () => {
     async function prepararAna() {
       const repositorio = repositorioDemo();
+      // O histórico de outubro dela (cobrança) não importa aqui: o assunto são as sessões futuras.
+      await repositorio.removerSessoes((await repositorio.listarSessoesDoPaciente(ANA)).map((s) => s.id));
       await garantirAgenda(repositorio, HOJE, 4);
       return abrirSecao(ANA, repositorio);
     }

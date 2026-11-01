@@ -7,14 +7,24 @@ import type {
   HorarioFixo,
   Id,
   NovaSessao,
+  NovoPagamento,
   Paciente,
+  Pagamento,
   Parceiro,
   Responsavel,
   Sessao,
 } from '../dominio/tipos';
 import { chaveOcorrencia } from '../regras/agenda';
 import { dataLocal, entre } from '../regras/datas';
-import type { FichaPaciente, Rascunho, Repositorio, SessaoComPaciente } from './repositorio';
+import {
+  ERRO_MES_JA_PAGO,
+  ERRO_SESSAO_JA_PAGA,
+  ERRO_SESSAO_PAGA_NAO_SAI,
+  type FichaPaciente,
+  type Rascunho,
+  type Repositorio,
+  type SessaoComPaciente,
+} from './repositorio';
 
 /** Dados com que o repositório em memória já começa (demonstração e testes). */
 export interface SementeMemoria {
@@ -26,6 +36,7 @@ export interface SementeMemoria {
   avaliacoes?: Avaliacao[];
   sessoes?: Sessao[];
   bloqueios?: Bloqueio[];
+  pagamentos?: Pagamento[];
 }
 
 const copia = <T>(valor: T): T => structuredClone(valor);
@@ -36,11 +47,14 @@ function tabela<T extends { id: Id }>(itens: T[] = []): Map<Id, T> {
 
 const porNome = (a: { nome: string }, b: { nome: string }) => a.nome.localeCompare(b.nome, 'pt-BR');
 const porInicio = (a: { inicio: string }, b: { inicio: string }) => Date.parse(a.inicio) - Date.parse(b.inicio);
+const DIA_1 = /^\d{4}-\d{2}-01$/;
 
 /**
  * Repositório que guarda tudo em Maps, sem rede. Imita o banco onde isso muda o
  * resultado: ids novos com `crypto.randomUUID()`, uma sessão por ocorrência de
- * horário fixo, `on delete set null` ao apagar parceiro ou sessão de destino.
+ * horário fixo, `on delete set null` ao apagar parceiro ou sessão de destino e, nos
+ * pagamentos, as mesmas regras (uma sessão só é paga uma vez, um mês só é pago uma vez,
+ * sessão paga não se apaga).
  * Tudo que entra e sai é copiado, então quem chama nunca altera o estado guardado.
  */
 export function criarRepositorioMemoria(semente: SementeMemoria = {}): Repositorio {
@@ -52,6 +66,8 @@ export function criarRepositorioMemoria(semente: SementeMemoria = {}): Repositor
   const avaliacoes = tabela(semente.avaliacoes);
   const sessoes = tabela(semente.sessoes);
   const bloqueios = tabela(semente.bloqueios);
+  // Mesma ordem de leitura do banco: sessaoIds em ordem de id. A ordem de inserção do Map é a de criação.
+  const pagamentos = tabela(semente.pagamentos?.map((p) => ({ ...p, sessaoIds: [...p.sessaoIds].sort() })));
 
   function gravar<T extends { id: Id }>(mapa: Map<Id, T>, r: Rascunho<T>): T {
     const salvo = { ...copia(r), id: r.id ?? crypto.randomUUID() } as T;
@@ -86,6 +102,39 @@ export function criarRepositorioMemoria(semente: SementeMemoria = {}): Repositor
   function responsavelPrincipal(pacienteId: Id): SessaoComPaciente['responsavelPrincipal'] {
     const r = [...responsaveis.values()].find((x) => x.pacienteId === pacienteId && x.principal);
     return r ? { nome: r.nome, telefone: r.telefone } : null;
+  }
+
+  function comPaciente(s: Sessao): SessaoComPaciente {
+    return {
+      ...copia(s),
+      pacienteNome: pacientes.get(s.pacienteId)?.nome ?? '',
+      responsavelPrincipal: responsavelPrincipal(s.pacienteId),
+    };
+  }
+
+  /** Ids das sessões que algum pagamento já quitou (o `unique (sessao_id)` do banco). */
+  function sessoesPagas(): Set<Id> {
+    return new Set([...pagamentos.values()].flatMap((p) => p.sessaoIds));
+  }
+
+  /** O que o banco confere com `check` e `foreign key` ao gravar um pagamento. */
+  function exigirPagamentoCoerente(p: NovoPagamento): void {
+    exigirPaciente(p.pacienteId);
+    if (!Number.isInteger(p.valorCentavos) || p.valorCentavos <= 0) {
+      throw new Error('O valor do pagamento precisa ser maior que zero.');
+    }
+    if ((p.referencia === 'mes') !== (p.mesReferencia !== null)) {
+      throw new Error('O mês só vai no pagamento do mês, e ele exige o mês.');
+    }
+    if (p.mesReferencia !== null && !DIA_1.test(p.mesReferencia)) {
+      throw new Error('O mês do pagamento tem que ser o dia 1.');
+    }
+    if ((p.referencia === 'avaliacao') !== (p.avaliacaoId !== null)) {
+      throw new Error('A avaliação só vai no pagamento da avaliação, e ele exige a avaliação.');
+    }
+    if (p.avaliacaoId !== null && !avaliacoes.has(p.avaliacaoId)) {
+      throw new Error(`Avaliação não encontrada: ${p.avaliacaoId}`);
+    }
   }
 
   return {
@@ -172,11 +221,7 @@ export function criarRepositorioMemoria(semente: SementeMemoria = {}): Repositor
       return [...sessoes.values()]
         .filter((s) => entre(dataLocal(s.inicio), de, ate))
         .sort(porInicio)
-        .map((s): SessaoComPaciente => ({
-          ...copia(s),
-          pacienteNome: pacientes.get(s.pacienteId)?.nome ?? '',
-          responsavelPrincipal: responsavelPrincipal(s.pacienteId),
-        }));
+        .map(comPaciente);
     },
     async listarSessoesDoPaciente(pacienteId) {
       return [...sessoes.values()]
@@ -212,12 +257,59 @@ export function criarRepositorioMemoria(semente: SementeMemoria = {}): Repositor
       sessoes.set(id, nova);
       return copia(nova);
     },
+    async listarSessoesCobradas() {
+      return [...sessoes.values()]
+        .filter((s) => s.valorCentavos !== null)
+        .sort(porInicio)
+        .map(comPaciente);
+    },
     async removerSessoes(ids) {
       const apagar = new Set(ids);
+      // Como o `on delete restrict` do banco: um lote com sessão paga não apaga nada.
+      const pagas = sessoesPagas();
+      if ([...apagar].some((id) => pagas.has(id))) throw new Error(ERRO_SESSAO_PAGA_NAO_SAI);
       for (const id of apagar) sessoes.delete(id);
       for (const s of sessoes.values()) {
         if (s.remarcadaPara !== null && apagar.has(s.remarcadaPara)) s.remarcadaPara = null;
       }
+    },
+
+    async listarPagamentos(filtro = {}) {
+      return [...pagamentos.values()]
+        .filter(
+          (p) =>
+            (filtro.pacienteId === undefined || p.pacienteId === filtro.pacienteId) &&
+            (filtro.de === undefined || p.data >= filtro.de) &&
+            (filtro.ate === undefined || p.data <= filtro.ate),
+        )
+        // Datas 'YYYY-MM-DD' ordenam como texto; o sort é estável, então na mesma data vale a ordem de criação.
+        .sort((a, b) => (a.data < b.data ? -1 : a.data > b.data ? 1 : 0))
+        .map(copia);
+    },
+    async registrarPagamento(novo) {
+      exigirPagamentoCoerente(novo);
+      // Como no banco, as sessões só são ligadas ao pagamento de sessões.
+      const sessaoIds = novo.referencia === 'sessoes' ? [...novo.sessaoIds].sort() : [];
+      const pagas = sessoesPagas();
+      for (const id of sessaoIds) {
+        if (!sessoes.has(id)) throw new Error(`Sessão não encontrada: ${id}`);
+        // Já paga, ou repetida na mesma chamada (a chave primária de pagamento_sessoes).
+        if (pagas.has(id)) throw new Error(ERRO_SESSAO_JA_PAGA);
+        pagas.add(id);
+      }
+      if (
+        novo.referencia === 'mes' &&
+        [...pagamentos.values()].some(
+          (p) => p.referencia === 'mes' && p.pacienteId === novo.pacienteId && p.mesReferencia === novo.mesReferencia,
+        )
+      ) {
+        throw new Error(ERRO_MES_JA_PAGO);
+      }
+      // Tudo conferido: só agora grava, então a falha nunca deixa pagamento pela metade.
+      return gravar(pagamentos, { ...copia(novo), id: crypto.randomUUID(), sessaoIds });
+    },
+    async removerPagamento(id) {
+      pagamentos.delete(id);
     },
 
     async listarBloqueios() {

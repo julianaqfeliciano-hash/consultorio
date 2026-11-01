@@ -4,11 +4,13 @@ import type {
   Bloqueio,
   HorarioFixo,
   Paciente,
+  Pagamento,
   Parceiro,
   Responsavel,
   Sessao,
 } from '../dominio/tipos';
 import {
+  argumentosRegistrarPagamento,
   avaliacaoParaLinha,
   bloqueioParaLinha,
   configuracoesParaLinha,
@@ -18,11 +20,13 @@ import {
   linhaParaConfiguracoes,
   linhaParaHorario,
   linhaParaPaciente,
+  linhaParaPagamento,
   linhaParaParceiro,
   linhaParaResponsavel,
   linhaParaSessao,
   mudancasSessaoParaLinha,
   pacienteParaLinha,
+  pagamentoParaLinha,
   parceiroParaLinha,
   responsavelParaLinha,
   sessaoParaLinha,
@@ -30,6 +34,7 @@ import {
   type LinhaBloqueio,
   type LinhaHorario,
   type LinhaPaciente,
+  type LinhaPagamento,
   type LinhaParceiro,
   type LinhaResponsavel,
   type LinhaSessao,
@@ -392,5 +397,126 @@ describe('configurações', () => {
   it('lê textos nulos do banco como texto vazio', () => {
     const linha = { ...configuracoesParaLinha(CONFIGURACOES_PADRAO), cpf: null, instagram: null };
     expect(linhaParaConfiguracoes(linha)).toEqual({ ...CONFIGURACOES_PADRAO, cpf: '', instagram: '' });
+  });
+});
+
+describe('pagamento', () => {
+  const sessaoA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const sessaoB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const pagamento: Pagamento = {
+    id: '99999999-9999-4999-8999-999999999999',
+    pacienteId: '11111111-1111-4111-8111-111111111111',
+    data: '2026-10-20',
+    valorCentavos: 36000,
+    forma: 'pix',
+    observacao: 'Pago na recepção',
+    referencia: 'sessoes',
+    mesReferencia: null,
+    avaliacaoId: null,
+    sessaoIds: [sessaoA, sessaoB],
+  };
+
+  it('a linha usa as colunas do banco, sem sessaoIds, dono nem criado_em', () => {
+    const linha = pagamentoParaLinha(pagamento);
+    expect(linha).toEqual({
+      id: pagamento.id,
+      paciente_id: pagamento.pacienteId,
+      data: '2026-10-20',
+      valor_centavos: 36000,
+      forma: 'pix',
+      observacao: 'Pago na recepção',
+      referencia: 'sessoes',
+      mes_referencia: null,
+      avaliacao_id: null,
+    });
+    expect(linha).not.toHaveProperty('dono');
+    expect(linha).not.toHaveProperty('criado_em');
+  });
+
+  it('sem id, a linha não leva id (o banco gera)', () => {
+    const { id: _id, ...novo } = pagamento;
+    void _id;
+    expect(pagamentoParaLinha(novo)).not.toHaveProperty('id');
+  });
+
+  it('ida e volta preserva todos os campos; as sessões vêm de pagamento_sessoes', () => {
+    const linha = pagamentoParaLinha(pagamento) as LinhaPagamento;
+    const lida = linhaParaPagamento({
+      ...linha,
+      pagamento_sessoes: [{ sessao_id: sessaoB }, { sessao_id: sessaoA }],
+    });
+    expect(lida).toEqual(pagamento);
+  });
+
+  it('ida e volta do pagamento do mês e do da avaliação, sem sessões', () => {
+    const mes: Pagamento = {
+      ...pagamento,
+      referencia: 'mes',
+      mesReferencia: '2026-10-01',
+      observacao: null,
+      sessaoIds: [],
+    };
+    const pacote: Pagamento = {
+      ...pagamento,
+      referencia: 'avaliacao',
+      avaliacaoId: '77777777-7777-4777-8777-777777777777',
+      sessaoIds: [],
+    };
+    for (const p of [mes, pacote]) {
+      expect(linhaParaPagamento({ ...(pagamentoParaLinha(p) as LinhaPagamento), pagamento_sessoes: [] })).toEqual(p);
+    }
+  });
+
+  it('lê as sessões em ordem estável e aceita a lista ausente', () => {
+    const linha = pagamentoParaLinha(pagamento) as LinhaPagamento;
+    expect(linhaParaPagamento({ ...linha, pagamento_sessoes: [{ sessao_id: sessaoB }, { sessao_id: sessaoA }] }).sessaoIds).toEqual(
+      [sessaoA, sessaoB],
+    );
+    expect(linhaParaPagamento(linha).sessaoIds).toEqual([]);
+  });
+
+  describe('argumentosRegistrarPagamento', () => {
+    const { id: _id, ...novo } = pagamento;
+    void _id;
+
+    it('manda sempre os nove parâmetros p_*, com null explícito nos opcionais', () => {
+      const argumentos = argumentosRegistrarPagamento({
+        ...novo,
+        observacao: null,
+        referencia: 'mes',
+        mesReferencia: '2026-10-01',
+        sessaoIds: [],
+      });
+      expect(argumentos).toEqual({
+        p_paciente_id: pagamento.pacienteId,
+        p_data: '2026-10-20',
+        p_valor_centavos: 36000,
+        p_forma: 'pix',
+        p_observacao: null,
+        p_referencia: 'mes',
+        p_mes_referencia: '2026-10-01',
+        p_avaliacao_id: null,
+        p_sessao_ids: [],
+      });
+      // `toEqual` ignora chaves com undefined; aqui a chave tem que existir de verdade.
+      expect(Object.keys(argumentos).sort()).toEqual([
+        'p_avaliacao_id',
+        'p_data',
+        'p_forma',
+        'p_mes_referencia',
+        'p_observacao',
+        'p_paciente_id',
+        'p_referencia',
+        'p_sessao_ids',
+        'p_valor_centavos',
+      ]);
+    });
+
+    it('as sessões só vão quando o pagamento é de sessões', () => {
+      expect(argumentosRegistrarPagamento(novo).p_sessao_ids).toEqual([sessaoA, sessaoB]);
+      expect(
+        argumentosRegistrarPagamento({ ...novo, referencia: 'mes', mesReferencia: '2026-10-01' }).p_sessao_ids,
+      ).toEqual([]);
+    });
   });
 });

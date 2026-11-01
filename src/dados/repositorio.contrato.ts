@@ -5,6 +5,7 @@ import type {
   HorarioFixo,
   Id,
   NovaSessao,
+  NovoPagamento,
   Paciente,
   Responsavel,
 } from '../dominio/tipos';
@@ -115,6 +116,27 @@ export function testarContrato(nome: string, fabrica: () => Promise<Repositorio>
         dataOcorrencia: dia,
       });
 
+    const pagamentoNovo = (pacienteId: Id, sobre: Partial<NovoPagamento> = {}): NovoPagamento => ({
+      pacienteId,
+      data: '2026-10-20',
+      valorCentavos: 18000,
+      forma: 'pix',
+      observacao: null,
+      referencia: 'sessoes',
+      mesReferencia: null,
+      avaliacaoId: null,
+      sessaoIds: [],
+      ...sobre,
+    });
+
+    /** Sessão já realizada e cobrada, para ser paga. */
+    const sessaoCobrada = (pacienteId: Id, dia: string, valorCentavos = 18000): NovaSessao =>
+      sessaoNova(pacienteId, {
+        inicio: instanteDe(dia, '14:00'),
+        situacao: 'compareceu',
+        valorCentavos,
+      });
+
     async function pacienteComHorario(repo: Repositorio) {
       const paciente = await repo.salvarPaciente(rascunhoPaciente());
       const horario = await repo.salvarHorario(rascunhoHorario(paciente.id));
@@ -136,6 +158,13 @@ export function testarContrato(nome: string, fabrica: () => Promise<Repositorio>
         const alteradas = { ...CONFIGURACOES_PADRAO, duracaoPadraoMin: 45, cpf: '529.982.247-25' };
         await repo.salvarConfiguracoes(alteradas);
         expect(await repo.obterConfiguracoes()).toEqual(alteradas);
+      });
+
+      it('guarda o valor padrão da avaliação', async () => {
+        const repo = await fabrica();
+        const comValor = { ...CONFIGURACOES_PADRAO, valorAvaliacaoPadraoCentavos: 180000 };
+        await repo.salvarConfiguracoes(comValor);
+        expect(await repo.obterConfiguracoes()).toEqual(comValor);
       });
     });
 
@@ -414,6 +443,25 @@ export function testarContrato(nome: string, fabrica: () => Promise<Repositorio>
       });
     });
 
+    describe('valores da avaliação', () => {
+      it('guarda o valor previsto e o desconto, e relê igual', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente({ tipo: 'avaliacao' }));
+        const entrada = rascunhoAvaliacao(paciente.id, {
+          valorPrevistoCentavos: 180000,
+          descontoTipo: 'percentual',
+          descontoValor: 10,
+        });
+        const criada = await repo.salvarAvaliacao(entrada);
+        expect(criada).toEqual({ ...entrada, id: criada.id });
+        expect((await repo.obterFicha(paciente.id))?.avaliacao).toEqual(criada);
+
+        const emReais = await repo.salvarAvaliacao({ ...criada, descontoTipo: 'reais', descontoValor: 15000 });
+        expect(emReais).toMatchObject({ valorPrevistoCentavos: 180000, descontoTipo: 'reais', descontoValor: 15000 });
+        expect((await repo.obterFicha(paciente.id))?.avaliacao).toEqual(emReais);
+      });
+    });
+
     // ---------------------------------------------------------------- horários vigentes
     describe('listarHorariosVigentes', () => {
       it('exclui horários cuja validade termina antes de `de` ou começa depois de `ate`', async () => {
@@ -623,6 +671,22 @@ export function testarContrato(nome: string, fabrica: () => Promise<Repositorio>
         await expect(repo.criarSessao(ocorrenciaFixa(paciente.id, horario.id, '2026-11-03'))).rejects.toThrow();
         expect(await repo.listarSessoesDoPaciente(paciente.id)).toHaveLength(1);
       });
+
+      it('guarda o valor da sessão (inclusive zero) e relê igual; sem valor volta null', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente());
+        const cobrada = await repo.criarSessao(sessaoNova(paciente.id, { valorCentavos: 18000 }));
+        const gratis = await repo.criarSessao(
+          sessaoNova(paciente.id, { inicio: instanteDe('2026-11-04', '14:00'), valorCentavos: 0 }),
+        );
+        const semValor = await repo.criarSessao(
+          sessaoNova(paciente.id, { inicio: instanteDe('2026-11-05', '14:00') }),
+        );
+        expect(cobrada.valorCentavos).toBe(18000);
+        expect(gratis.valorCentavos).toBe(0);
+        expect(semValor.valorCentavos).toBeNull();
+        expect(await repo.listarSessoesDoPaciente(paciente.id)).toEqual([cobrada, gratis, semValor]);
+      });
     });
 
     describe('atualizarSessao', () => {
@@ -667,6 +731,20 @@ export function testarContrato(nome: string, fabrica: () => Promise<Repositorio>
 
         const limpa = await repo.atualizarSessao(original.id, { remarcadaPara: null, observacao: null });
         expect(limpa).toMatchObject({ remarcadaPara: null, observacao: null });
+      });
+
+      it('fixa o valor da sessão e permite limpá-lo de volta para null', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente());
+        const original = await repo.criarSessao(sessaoNova(paciente.id));
+
+        const cobrada = await repo.atualizarSessao(original.id, { situacao: 'compareceu', valorCentavos: 18000 });
+        expect(cobrada).toMatchObject({ situacao: 'compareceu', valorCentavos: 18000 });
+        // `undefined` não mexe no valor; `null` o limpa.
+        expect(await repo.atualizarSessao(original.id, { confirmada: true })).toMatchObject({ valorCentavos: 18000 });
+        const limpa = await repo.atualizarSessao(original.id, { valorCentavos: null });
+        expect(limpa.valorCentavos).toBeNull();
+        expect(await repo.listarSessoesDoPaciente(paciente.id)).toEqual([limpa]);
       });
 
       it('rejeita quando a sessão não existe', async () => {
@@ -719,6 +797,241 @@ export function testarContrato(nome: string, fabrica: () => Promise<Repositorio>
         await repo.criarSessao(sessaoNova(outro.id));
 
         expect((await repo.listarSessoesDoPaciente(paciente.id)).map((s) => s.id)).toEqual([antes.id, depois.id]);
+      });
+    });
+
+    // ---------------------------------------------------------------- sessões cobradas
+    describe('listarSessoesCobradas', () => {
+      it('traz só as sessões com valor (zero conta), de todos os pacientes, por início, com nome e responsável', async () => {
+        const repo = await fabrica();
+        const ana = await repo.salvarPaciente(rascunhoPaciente({ nome: 'Ana Cobrada' }));
+        const bia = await repo.salvarPaciente(rascunhoPaciente({ nome: 'Bia Cobrada' }));
+        await repo.salvarResponsavel(
+          rascunhoResponsavel(ana.id, { nome: 'Mariana Teste', telefone: '(85) 90000-0001', principal: true }),
+        );
+
+        const tarde = await repo.criarSessao(sessaoCobrada(bia.id, '2026-10-20'));
+        const cedo = await repo.criarSessao(sessaoCobrada(ana.id, '2026-10-06', 20000));
+        const gratis = await repo.criarSessao(sessaoCobrada(ana.id, '2026-10-13', 0));
+        await repo.criarSessao(sessaoNova(ana.id, { inicio: instanteDe('2026-10-27', '14:00') }));
+        await repo.criarSessao(sessaoNova(bia.id, { inicio: instanteDe('2026-10-21', '14:00'), situacao: 'cancelada' }));
+
+        expect(await repo.listarSessoesCobradas()).toEqual([
+          { ...cedo, pacienteNome: 'Ana Cobrada', responsavelPrincipal: { nome: 'Mariana Teste', telefone: '(85) 90000-0001' } },
+          { ...gratis, pacienteNome: 'Ana Cobrada', responsavelPrincipal: { nome: 'Mariana Teste', telefone: '(85) 90000-0001' } },
+          { ...tarde, pacienteNome: 'Bia Cobrada', responsavelPrincipal: null },
+        ]);
+      });
+
+      it('sem nenhuma sessão com valor, devolve lista vazia', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente());
+        await repo.criarSessao(sessaoNova(paciente.id));
+        expect(await repo.listarSessoesCobradas()).toEqual([]);
+      });
+    });
+
+    // ---------------------------------------------------------------- pagamentos
+    describe('pagamentos', () => {
+      it('registra o pagamento de sessões e ele aparece em listarPagamentos do paciente, com sessaoIds', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente());
+        const outro = await repo.salvarPaciente(rascunhoPaciente({ nome: 'Outro Paciente' }));
+        const s1 = await repo.criarSessao(sessaoCobrada(paciente.id, '2026-10-06'));
+        const s2 = await repo.criarSessao(sessaoCobrada(paciente.id, '2026-10-13'));
+        const alheia = await repo.criarSessao(sessaoCobrada(outro.id, '2026-10-06'));
+
+        const entrada = pagamentoNovo(paciente.id, {
+          valorCentavos: 36000,
+          forma: 'dinheiro',
+          observacao: 'Pago na recepção',
+          sessaoIds: [s1.id, s2.id],
+        });
+        const pago = await repo.registrarPagamento(entrada);
+        expect(pago.id).toEqual(expect.any(String));
+        expect(pago).toEqual({ ...entrada, id: pago.id, sessaoIds: [s1.id, s2.id].sort() });
+
+        await repo.registrarPagamento(pagamentoNovo(outro.id, { sessaoIds: [alheia.id] }));
+
+        expect(await repo.listarPagamentos({ pacienteId: paciente.id })).toEqual([pago]);
+        expect(await repo.listarPagamentos()).toHaveLength(2);
+      });
+
+      it('guarda o pagamento do mês e o da avaliação, sem sessões', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente({ formaCobranca: 'mensal' }));
+        const avaliacao = await repo.salvarAvaliacao(rascunhoAvaliacao(paciente.id));
+
+        const mes = await repo.registrarPagamento(
+          pagamentoNovo(paciente.id, { referencia: 'mes', mesReferencia: '2026-10-01', valorCentavos: 80000 }),
+        );
+        const pacote = await repo.registrarPagamento(
+          pagamentoNovo(paciente.id, { referencia: 'avaliacao', avaliacaoId: avaliacao.id, valorCentavos: 81000 }),
+        );
+
+        expect(mes).toMatchObject({ referencia: 'mes', mesReferencia: '2026-10-01', avaliacaoId: null, sessaoIds: [] });
+        expect(pacote).toMatchObject({ referencia: 'avaliacao', avaliacaoId: avaliacao.id, mesReferencia: null, sessaoIds: [] });
+        expect(await repo.listarPagamentos({ pacienteId: paciente.id })).toEqual([mes, pacote]);
+      });
+
+      it('registrar de novo a mesma sessão rejeita e continua havendo um só pagamento', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente());
+        const sessao = await repo.criarSessao(sessaoCobrada(paciente.id, '2026-10-06'));
+        const primeiro = await repo.registrarPagamento(pagamentoNovo(paciente.id, { sessaoIds: [sessao.id] }));
+
+        await expect(
+          repo.registrarPagamento(pagamentoNovo(paciente.id, { sessaoIds: [sessao.id] })),
+        ).rejects.toThrow('Esta sessão já foi paga.');
+        expect(await repo.listarPagamentos({ pacienteId: paciente.id })).toEqual([primeiro]);
+      });
+
+      it('é atômico: se uma das sessões já está paga, nenhuma é gravada e a outra continua livre', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente());
+        const paga = await repo.criarSessao(sessaoCobrada(paciente.id, '2026-10-06'));
+        const livre = await repo.criarSessao(sessaoCobrada(paciente.id, '2026-10-13'));
+        const primeiro = await repo.registrarPagamento(pagamentoNovo(paciente.id, { sessaoIds: [paga.id] }));
+
+        await expect(
+          repo.registrarPagamento(pagamentoNovo(paciente.id, { sessaoIds: [livre.id, paga.id] })),
+        ).rejects.toThrow('Esta sessão já foi paga.');
+        expect(await repo.listarPagamentos()).toEqual([primeiro]);
+
+        const depois = await repo.registrarPagamento(pagamentoNovo(paciente.id, { sessaoIds: [livre.id] }));
+        expect(depois.sessaoIds).toEqual([livre.id]);
+      });
+
+      it('pagar o mesmo mês duas vezes rejeita; outro mês ou outro paciente pode', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente({ formaCobranca: 'mensal' }));
+        const outro = await repo.salvarPaciente(rascunhoPaciente({ nome: 'Outro Paciente', formaCobranca: 'mensal' }));
+        const outubro = await repo.registrarPagamento(
+          pagamentoNovo(paciente.id, { referencia: 'mes', mesReferencia: '2026-10-01' }),
+        );
+
+        await expect(
+          repo.registrarPagamento(pagamentoNovo(paciente.id, { referencia: 'mes', mesReferencia: '2026-10-01', data: '2026-10-25' })),
+        ).rejects.toThrow('Este mês já foi pago.');
+        expect(await repo.listarPagamentos({ pacienteId: paciente.id })).toEqual([outubro]);
+
+        await repo.registrarPagamento(pagamentoNovo(paciente.id, { referencia: 'mes', mesReferencia: '2026-11-01' }));
+        await repo.registrarPagamento(pagamentoNovo(outro.id, { referencia: 'mes', mesReferencia: '2026-10-01' }));
+        expect(await repo.listarPagamentos()).toHaveLength(3);
+      });
+
+      it('rejeita pagamento incoerente: valor zero, mês sem referência, mês fora do dia 1, avaliação sem id', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente());
+        const incoerentes: Partial<NovoPagamento>[] = [
+          { valorCentavos: 0 },
+          { referencia: 'mes', mesReferencia: null },
+          { referencia: 'mes', mesReferencia: '2026-10-15' },
+          { referencia: 'sessoes', mesReferencia: '2026-10-01' },
+          { referencia: 'avaliacao', avaliacaoId: null },
+        ];
+        for (const sobre of incoerentes) {
+          await expect(repo.registrarPagamento(pagamentoNovo(paciente.id, sobre)), JSON.stringify(sobre)).rejects.toThrow();
+        }
+        expect(await repo.listarPagamentos()).toEqual([]);
+      });
+
+      it('rejeita pagamento de paciente, sessão ou avaliação que não existem', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente());
+        await expect(repo.registrarPagamento(pagamentoNovo(idInexistente()))).rejects.toThrow();
+        await expect(
+          repo.registrarPagamento(pagamentoNovo(paciente.id, { sessaoIds: [idInexistente()] })),
+        ).rejects.toThrow();
+        await expect(
+          repo.registrarPagamento(pagamentoNovo(paciente.id, { referencia: 'avaliacao', avaliacaoId: idInexistente() })),
+        ).rejects.toThrow();
+        expect(await repo.listarPagamentos()).toEqual([]);
+      });
+
+      it('removerPagamento libera a sessão para um novo pagamento', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente());
+        const sessao = await repo.criarSessao(sessaoCobrada(paciente.id, '2026-10-06'));
+        const primeiro = await repo.registrarPagamento(pagamentoNovo(paciente.id, { sessaoIds: [sessao.id] }));
+
+        await repo.removerPagamento(primeiro.id);
+        expect(await repo.listarPagamentos()).toEqual([]);
+
+        const segundo = await repo.registrarPagamento(
+          pagamentoNovo(paciente.id, { forma: 'cartao', sessaoIds: [sessao.id] }),
+        );
+        expect(segundo.id).not.toBe(primeiro.id);
+        expect(await repo.listarPagamentos({ pacienteId: paciente.id })).toEqual([segundo]);
+      });
+
+      it('removerPagamento libera também o mês; id que não existe não dá erro', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente({ formaCobranca: 'mensal' }));
+        const mes = await repo.registrarPagamento(
+          pagamentoNovo(paciente.id, { referencia: 'mes', mesReferencia: '2026-10-01' }),
+        );
+        await repo.removerPagamento(idInexistente());
+        await repo.removerPagamento(mes.id);
+        const outra = await repo.registrarPagamento(
+          pagamentoNovo(paciente.id, { referencia: 'mes', mesReferencia: '2026-10-01' }),
+        );
+        expect(await repo.listarPagamentos()).toEqual([outra]);
+      });
+
+      it('uma sessão paga não pode ser removida; depois de remover o pagamento, pode', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente());
+        const paga = await repo.criarSessao(sessaoCobrada(paciente.id, '2026-10-06'));
+        const livre = await repo.criarSessao(sessaoCobrada(paciente.id, '2026-10-13'));
+        const pagamento = await repo.registrarPagamento(pagamentoNovo(paciente.id, { sessaoIds: [paga.id] }));
+
+        // Um lote com uma sessão paga não apaga nada, nem as livres.
+        await expect(repo.removerSessoes([livre.id, paga.id])).rejects.toThrow(
+          'Esta sessão já foi paga e não pode ser removida.',
+        );
+        expect((await repo.listarSessoesDoPaciente(paciente.id)).map((s) => s.id)).toEqual([paga.id, livre.id]);
+
+        await repo.removerPagamento(pagamento.id);
+        await repo.removerSessoes([paga.id]);
+        expect((await repo.listarSessoesDoPaciente(paciente.id)).map((s) => s.id)).toEqual([livre.id]);
+      });
+
+      it('listarPagamentos({ de, ate }) filtra pela data, com os dois limites incluídos', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente());
+        const dias = ['2026-09-30', '2026-10-01', '2026-10-15', '2026-10-31', '2026-11-01'];
+        const feitos = [];
+        for (const data of dias) {
+          const s = await repo.criarSessao(sessaoCobrada(paciente.id, data));
+          feitos.push(await repo.registrarPagamento(pagamentoNovo(paciente.id, { data, sessaoIds: [s.id] })));
+        }
+
+        const outubro = await repo.listarPagamentos({ de: '2026-10-01', ate: '2026-10-31' });
+        expect(outubro.map((p) => p.data)).toEqual(['2026-10-01', '2026-10-15', '2026-10-31']);
+        expect((await repo.listarPagamentos({ de: '2026-10-31' })).map((p) => p.data)).toEqual([
+          '2026-10-31',
+          '2026-11-01',
+        ]);
+        expect((await repo.listarPagamentos({ ate: '2026-10-01' })).map((p) => p.data)).toEqual([
+          '2026-09-30',
+          '2026-10-01',
+        ]);
+        expect(await repo.listarPagamentos({ de: '2026-12-01', ate: '2026-12-31' })).toEqual([]);
+        expect(await repo.listarPagamentos()).toEqual(feitos);
+      });
+
+      it('lista por data e, na mesma data, pela ordem em que foram registrados', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente());
+        const sessoes = [];
+        for (const dia of ['2026-10-06', '2026-10-13', '2026-10-20']) {
+          sessoes.push(await repo.criarSessao(sessaoCobrada(paciente.id, dia)));
+        }
+        const b = await repo.registrarPagamento(pagamentoNovo(paciente.id, { data: '2026-10-20', sessaoIds: [sessoes[0].id] }));
+        const a = await repo.registrarPagamento(pagamentoNovo(paciente.id, { data: '2026-10-05', sessaoIds: [sessoes[1].id] }));
+        const c = await repo.registrarPagamento(pagamentoNovo(paciente.id, { data: '2026-10-20', sessaoIds: [sessoes[2].id] }));
+        expect((await repo.listarPagamentos()).map((p) => p.id)).toEqual([a.id, b.id, c.id]);
       });
     });
 

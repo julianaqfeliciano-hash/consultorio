@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { DataISO, HorarioComPaciente, Id, StatusPaciente, TipoAtendimento } from '../dominio/tipos';
 import { instanteDe, somarDias } from '../regras/datas';
 import {
+  argumentosRegistrarPagamento,
   avaliacaoParaLinha,
   bloqueioParaLinha,
   configuracoesParaLinha,
@@ -11,6 +12,7 @@ import {
   linhaParaConfiguracoes,
   linhaParaHorario,
   linhaParaPaciente,
+  linhaParaPagamento,
   linhaParaParceiro,
   linhaParaResponsavel,
   linhaParaSessao,
@@ -24,26 +26,78 @@ import {
   type LinhaConfiguracoes,
   type LinhaHorario,
   type LinhaPaciente,
+  type LinhaPagamento,
+  type LinhaPagamentoComSessoes,
   type LinhaParceiro,
   type LinhaResponsavel,
   type LinhaSessao,
 } from './mapeamento';
-import type { FichaPaciente, Repositorio, SessaoComPaciente } from './repositorio';
+import {
+  ERRO_MES_JA_PAGO,
+  ERRO_SESSAO_JA_PAGA,
+  ERRO_SESSAO_PAGA_NAO_SAI,
+  type FichaPaciente,
+  type Repositorio,
+  type SessaoComPaciente,
+} from './repositorio';
 
 /** Quantos ids vão de uma vez num filtro `in (...)`, para a URL não ficar enorme. */
 const IDS_POR_PEDIDO = 100;
 
+/** O PostgREST entrega no máximo 1000 linhas por pedido (limite do projeto Supabase). */
+const LINHAS_POR_PAGINA = 1000;
+
 const FORMATO_DATA = /^\d{4}-\d{2}-\d{2}$/;
+
+interface ErroDoBanco {
+  message: string;
+  /** Código SQLSTATE do Postgres. */
+  code?: string;
+  details?: string | null;
+}
 
 interface Resposta {
   data: unknown;
-  error: { message: string } | null;
+  error: ErroDoBanco | null;
+}
+
+/**
+ * O erro que a interface vê. Os erros das regras de pagamento ganham texto em português
+ * (o nome da restrição vem na mensagem do Postgres); os outros seguem com a mensagem do banco.
+ */
+export function traduzirErroDoBanco(erro: ErroDoBanco): Error {
+  const texto = `${erro.message} ${erro.details ?? ''}`;
+  let mensagem = erro.message;
+  if (erro.code === '23505') {
+    // unique violation: o índice do mês, ou o unique/chave primária das ligações com as sessões.
+    if (texto.includes('pagamentos_um_por_paciente_e_mes')) mensagem = ERRO_MES_JA_PAGO;
+    else if (texto.includes('pagamento_sessoes')) mensagem = ERRO_SESSAO_JA_PAGA;
+  } else if (erro.code === '23001' && texto.includes('pagamento_sessoes')) {
+    // restrict violation: apagar uma sessão que está ligada a um pagamento.
+    mensagem = ERRO_SESSAO_PAGA_NAO_SAI;
+  }
+  return new Error(mensagem, { cause: erro });
 }
 
 /** Devolve os dados da resposta ou lança o erro do Supabase. */
 function dados<T>(resposta: Resposta): T {
-  if (resposta.error) throw new Error(resposta.error.message, { cause: resposta.error });
+  if (resposta.error) throw traduzirErroDoBanco(resposta.error);
   return resposta.data as T;
+}
+
+/**
+ * Lê uma consulta que pode passar de 1000 linhas, página por página. `fabrica(de, ate)`
+ * monta a consulta já com `.range(de, ate)` (os dois limites incluídos); a última página é a
+ * que vem com menos de 1000 linhas. A ordenação da consulta precisa ser total (termine em
+ * `id`), senão uma linha pode se repetir ou faltar na virada de página.
+ */
+export async function buscarTodas<T>(fabrica: (de: number, ate: number) => PromiseLike<Resposta>): Promise<T[]> {
+  const linhas: T[] = [];
+  for (let de = 0; ; de += LINHAS_POR_PAGINA) {
+    const pagina = dados<T[]>(await fabrica(de, de + LINHAS_POR_PAGINA - 1));
+    linhas.push(...pagina);
+    if (pagina.length < LINHAS_POR_PAGINA) return linhas;
+  }
 }
 
 /** Datas entram em filtros de texto (`or(...)`); só passam no formato esperado. */
@@ -58,6 +112,17 @@ type LinhaSessaoComPaciente = LinhaSessao & {
     responsaveis: { nome: string; telefone: string | null; principal: boolean }[];
   } | null;
 };
+
+const SELECT_SESSAO_COM_PACIENTE = '*, pacientes(nome, responsaveis(nome, telefone, principal))';
+
+function sessaoComPaciente({ pacientes, ...linha }: LinhaSessaoComPaciente): SessaoComPaciente {
+  const principal = pacientes?.responsaveis.find((r) => r.principal);
+  return {
+    ...linhaParaSessao(linha),
+    pacienteNome: pacientes?.nome ?? '',
+    responsavelPrincipal: principal ? { nome: principal.nome, telefone: principal.telefone ?? '' } : null,
+  };
+}
 
 type LinhaHorarioComPaciente = LinhaHorario & {
   pacientes: {
@@ -195,28 +260,41 @@ export function criarRepositorioSupabase(cliente: SupabaseClient): Repositorio {
     },
     async listarSessoes(de, ate) {
       // Os dias são os do consultório: da meia-noite local de `de` até a meia-noite local depois de `ate`.
-      const linhas = dados<LinhaSessaoComPaciente[]>(
-        await cliente
+      const linhas = await buscarTodas<LinhaSessaoComPaciente>((primeira, ultima) =>
+        cliente
           .from('sessoes')
-          .select('*, pacientes(nome, responsaveis(nome, telefone, principal))')
+          .select(SELECT_SESSAO_COM_PACIENTE)
           .gte('inicio', instanteDe(de, '00:00'))
           .lt('inicio', instanteDe(somarDias(ate, 1), '00:00'))
-          .order('inicio'),
+          .order('inicio')
+          .order('id')
+          .range(primeira, ultima),
       );
-      return linhas.map(({ pacientes, ...linha }): SessaoComPaciente => {
-        const principal = pacientes?.responsaveis.find((r) => r.principal);
-        return {
-          ...linhaParaSessao(linha),
-          pacienteNome: pacientes?.nome ?? '',
-          responsavelPrincipal: principal ? { nome: principal.nome, telefone: principal.telefone ?? '' } : null,
-        };
-      });
+      return linhas.map(sessaoComPaciente);
     },
     async listarSessoesDoPaciente(pacienteId) {
-      const linhas = dados<LinhaSessao[]>(
-        await cliente.from('sessoes').select('*').eq('paciente_id', pacienteId).order('inicio'),
+      const linhas = await buscarTodas<LinhaSessao>((primeira, ultima) =>
+        cliente
+          .from('sessoes')
+          .select('*')
+          .eq('paciente_id', pacienteId)
+          .order('inicio')
+          .order('id')
+          .range(primeira, ultima),
       );
       return linhas.map(linhaParaSessao);
+    },
+    async listarSessoesCobradas() {
+      const linhas = await buscarTodas<LinhaSessaoComPaciente>((primeira, ultima) =>
+        cliente
+          .from('sessoes')
+          .select(SELECT_SESSAO_COM_PACIENTE)
+          .not('valor_centavos', 'is', null)
+          .order('inicio')
+          .order('id')
+          .range(primeira, ultima),
+      );
+      return linhas.map(sessaoComPaciente);
     },
     async inserirOcorrencias(novas) {
       if (novas.length === 0) return 0;
@@ -249,6 +327,31 @@ export function criarRepositorioSupabase(cliente: SupabaseClient): Repositorio {
       for (let i = 0; i < ids.length; i += IDS_POR_PEDIDO) {
         dados(await cliente.from('sessoes').delete().in('id', ids.slice(i, i + IDS_POR_PEDIDO)));
       }
+    },
+
+    async listarPagamentos(filtro = {}) {
+      const { pacienteId, de, ate } = filtro;
+      const linhas = await buscarTodas<LinhaPagamentoComSessoes>((primeira, ultima) => {
+        let consulta = cliente.from('pagamentos').select('*, pagamento_sessoes(sessao_id)');
+        if (pacienteId !== undefined) consulta = consulta.eq('paciente_id', pacienteId);
+        if (de !== undefined) consulta = consulta.gte('data', exigirData(de));
+        if (ate !== undefined) consulta = consulta.lte('data', exigirData(ate));
+        return consulta.order('data').order('criado_em').order('id').range(primeira, ultima);
+      });
+      return linhas.map(linhaParaPagamento);
+    },
+    async registrarPagamento(p) {
+      // Uma chamada só: o banco grava o pagamento e as ligações com as sessões na mesma transação.
+      const criado = dados<LinhaPagamento>(await cliente.rpc('registrar_pagamento', argumentosRegistrarPagamento(p)));
+      // O retorno da função não traz as ligações: relê o pagamento com elas.
+      const linha = dados<LinhaPagamentoComSessoes>(
+        await cliente.from('pagamentos').select('*, pagamento_sessoes(sessao_id)').eq('id', criado.id).single(),
+      );
+      return linhaParaPagamento(linha);
+    },
+    async removerPagamento(id) {
+      // pagamento_sessoes.pagamento_id é "on delete cascade": as sessões e o mês ficam livres.
+      dados(await cliente.from('pagamentos').delete().eq('id', id));
     },
 
     async listarBloqueios() {

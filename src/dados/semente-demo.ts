@@ -1,5 +1,14 @@
 import { CONFIGURACOES_PADRAO, ETAPAS_AVALIACAO_PADRAO } from '../dominio/padroes';
-import type { Avaliacao, DataISO, HorarioFixo, Paciente, Parceiro, Responsavel, Sessao } from '../dominio/tipos';
+import type {
+  Avaliacao,
+  DataISO,
+  HorarioFixo,
+  Paciente,
+  Pagamento,
+  Parceiro,
+  Responsavel,
+  Sessao,
+} from '../dominio/tipos';
 import { diaDaSemana, instanteDe, somarDias } from '../regras/datas';
 import type { SementeMemoria } from './memoria';
 
@@ -10,6 +19,17 @@ function ultimoDiaAntes(hoje: DataISO, dia: number): DataISO {
   return d;
 }
 
+/** Todos os dias da semana `dia` do mês anterior ao de `hoje`, em ordem. */
+function diasDoMesAnterior(hoje: DataISO, dia: number): DataISO[] {
+  const ultimoDoMes = somarDias(`${hoje.slice(0, 7)}-01`, -1);
+  const primeiroDoMes = `${ultimoDoMes.slice(0, 7)}-01`;
+  const dias: DataISO[] = [];
+  for (let d = primeiroDoMes; d <= ultimoDoMes; d = somarDias(d, 1)) {
+    if (diaDaSemana(d) === dia) dias.push(d);
+  }
+  return dias;
+}
+
 /**
  * Dados fictícios do modo demonstração. Tudo é calculado a partir de `hoje`, então
  * o aplicativo sempre parece em uso. Os nomes e telefones são inventados.
@@ -18,6 +38,12 @@ function ultimoDiaAntes(hoje: DataISO, dia: number): DataISO {
  * Ana Clara tem horário na terça 14:00; Pedro Henrique já fez 3 sessões da avaliação
  * (a próxima, quarta 09:00, é a "sessão 4 de 10"); Maria Luísa tem horário na quinta
  * 16:00 e o responsável principal dela está sem telefone; Lucas está na lista de espera.
+ *
+ * Cobrança (o mês anterior ao de `hoje` é outubro de 2026): Ana Clara tem 4 terças
+ * `compareceu` a R$ 200,00 sem pagamento (outubro devendo R$ 800,00); Maria Luísa tem 2
+ * quintas `compareceu` a R$ 180,00, uma paga por Pix no dia e a outra aberta; Pedro Henrique
+ * tem a avaliação de R$ 1.800,00 com 10% de desconto (R$ 1.620,00) e um pagamento de
+ * R$ 810,00 por Pix na data da primeira sessão (as sessões dele seguem sem valor).
  */
 export function sementeDemo(hoje: DataISO): Required<SementeMemoria> {
   const dias = (n: number) => somarDias(hoje, -n);
@@ -26,6 +52,9 @@ export function sementeDemo(hoje: DataISO): Required<SementeMemoria> {
   // As três sessões de Pedro: as três últimas quartas-feiras antes de hoje.
   const ultimaQuarta = ultimoDiaAntes(hoje, 3);
   const quartasFeitas = [-14, -7, 0].map((n) => somarDias(ultimaQuarta, n));
+  // As sessões cobradas ficam no mês anterior ao de hoje, para o mês já estar fechado (devendo).
+  const tercasDeAna = diasDoMesAnterior(hoje, 2).slice(-4);
+  const quintasDeMaria = diasDoMesAnterior(hoje, 4).slice(-2);
 
   const parceiros: Parceiro[] = [
     {
@@ -207,29 +236,107 @@ export function sementeDemo(hoje: DataISO): Required<SementeMemoria> {
       fim: null,
       sessoesPrevistas: 10,
       etapas: ETAPAS_AVALIACAO_PADRAO.map((nome, i) => ({ nome, feita: i === 0 })),
-      valorPrevistoCentavos: 0,
-      descontoTipo: 'nenhum',
-      descontoValor: 0,
+      valorPrevistoCentavos: 180000,
+      descontoTipo: 'percentual',
+      descontoValor: 10,
     },
   ];
 
-  const sessoes: Sessao[] = quartasFeitas.map((dia, i) => ({
-    id: `demo-sessao-pedro-${i + 1}`,
-    pacienteId: 'demo-paciente-pedro',
-    inicio: instanteDe(dia, '09:00'),
+  // Sessão de horário fixo que já aconteceu; o valor só entra onde a sessão é cobrada à parte.
+  const sessaoFeita = (e: {
+    id: string;
+    pacienteId: string;
+    horarioFixoId: string;
+    dia: DataISO;
+    hora: string;
+    tipo: Sessao['tipo'];
+    avaliacaoId: string | null;
+    valorCentavos: number | null;
+  }): Sessao => ({
+    id: e.id,
+    pacienteId: e.pacienteId,
+    inicio: instanteDe(e.dia, e.hora),
     duracaoMin: 50,
-    tipo: 'avaliacao',
+    tipo: e.tipo,
     acompanhamentoFamiliar: false,
     origem: 'fixa',
-    horarioFixoId: 'demo-horario-pedro',
-    dataOcorrencia: dia,
+    horarioFixoId: e.horarioFixoId,
+    dataOcorrencia: e.dia,
     situacao: 'compareceu',
     remarcadaPara: null,
-    avaliacaoId: 'demo-avaliacao-pedro',
+    avaliacaoId: e.avaliacaoId,
     confirmada: true,
     observacao: null,
-    valorCentavos: null,
-  }));
+    valorCentavos: e.valorCentavos,
+  });
+
+  const sessoes: Sessao[] = [
+    ...tercasDeAna.map((dia, i) =>
+      sessaoFeita({
+        id: `demo-sessao-ana-${i + 1}`,
+        pacienteId: 'demo-paciente-ana',
+        horarioFixoId: 'demo-horario-ana',
+        dia,
+        hora: '14:00',
+        tipo: 'psicoterapia',
+        avaliacaoId: null,
+        valorCentavos: 20000,
+      }),
+    ),
+    ...quartasFeitas.map((dia, i) =>
+      sessaoFeita({
+        id: `demo-sessao-pedro-${i + 1}`,
+        pacienteId: 'demo-paciente-pedro',
+        horarioFixoId: 'demo-horario-pedro',
+        dia,
+        hora: '09:00',
+        tipo: 'avaliacao',
+        avaliacaoId: 'demo-avaliacao-pedro',
+        valorCentavos: null,
+      }),
+    ),
+    ...quintasDeMaria.map((dia, i) =>
+      sessaoFeita({
+        id: `demo-sessao-maria-${i + 1}`,
+        pacienteId: 'demo-paciente-maria',
+        horarioFixoId: 'demo-horario-maria',
+        dia,
+        hora: '16:00',
+        tipo: 'psicoterapia',
+        avaliacaoId: null,
+        valorCentavos: 18000,
+      }),
+    ),
+  ];
+
+  const pagamentos: Pagamento[] = [
+    {
+      // A primeira quinta de Maria foi paga por Pix no próprio dia; a segunda continua aberta.
+      id: 'demo-pagamento-maria',
+      pacienteId: 'demo-paciente-maria',
+      data: quintasDeMaria[0],
+      valorCentavos: 18000,
+      forma: 'pix',
+      observacao: null,
+      referencia: 'sessoes',
+      mesReferencia: null,
+      avaliacaoId: null,
+      sessaoIds: ['demo-sessao-maria-1'],
+    },
+    {
+      // Metade do pacote da avaliação (R$ 1.620,00 já com o desconto), paga na primeira sessão.
+      id: 'demo-pagamento-pedro',
+      pacienteId: 'demo-paciente-pedro',
+      data: quartasFeitas[0],
+      valorCentavos: 81000,
+      forma: 'pix',
+      observacao: null,
+      referencia: 'avaliacao',
+      mesReferencia: null,
+      avaliacaoId: 'demo-avaliacao-pedro',
+      sessaoIds: [],
+    },
+  ];
 
   return {
     configuracoes: CONFIGURACOES_PADRAO,
@@ -240,5 +347,6 @@ export function sementeDemo(hoje: DataISO): Required<SementeMemoria> {
     avaliacoes,
     sessoes,
     bloqueios: [],
+    pagamentos,
   };
 }

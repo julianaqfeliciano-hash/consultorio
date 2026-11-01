@@ -1,6 +1,37 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import {
+  argumentosRegistrarPagamento,
+  avaliacaoParaLinha,
+  bloqueioParaLinha,
+  configuracoesParaLinha,
+  horarioParaLinha,
+  linhaParaAvaliacao,
+  linhaParaBloqueio,
+  linhaParaConfiguracoes,
+  linhaParaHorario,
+  linhaParaPaciente,
+  linhaParaPagamento,
+  linhaParaParceiro,
+  linhaParaResponsavel,
+  linhaParaSessao,
+  pacienteParaLinha,
+  pagamentoParaLinha,
+  parceiroParaLinha,
+  responsavelParaLinha,
+  sessaoParaLinha,
+  type LinhaAvaliacao,
+  type LinhaBloqueio,
+  type LinhaConfiguracoes,
+  type LinhaHorario,
+  type LinhaPaciente,
+  type LinhaPagamentoComSessoes,
+  type LinhaParceiro,
+  type LinhaResponsavel,
+  type LinhaSessao,
+} from '../../src/dados/mapeamento.ts';
+import { CONFIGURACOES_PADRAO } from '../../src/dominio/padroes.ts';
 import { comoAnonimo, comoUsuario, criarBanco, criarUsuario } from './banco.ts';
 
 const TABELAS_NOVAS = ['pagamento_sessoes', 'pagamentos'];
@@ -557,5 +588,226 @@ describe('colunas novas de valores', () => {
     for (const tentativa of tentativas) {
       await expect(tentativa()).rejects.toThrow(/check constraint/);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pino das colunas: o que o app grava e lê tem que existir no banco migrado
+// ---------------------------------------------------------------------------
+describe('mapeamento contra as tabelas migradas', () => {
+  /**
+   * Insere a linha produzida por um `…ParaLinha` (sem `dono`: quem preenche é o banco) e a
+   * devolve do jeito que o PostgREST entrega, em JSON (datas e horas como texto).
+   */
+  async function inserirLinha<L>(tabela: string, linha: object): Promise<L> {
+    const campos = Object.entries(linha);
+    const colunas = campos.map(([coluna]) => `"${coluna}"`).join(', ');
+    const marcas = campos.map((_, i) => `$${i + 1}`).join(', ');
+    // jsonb (as etapas da avaliação) entra como texto JSON.
+    const valores = campos.map(([, v]) => (v !== null && typeof v === 'object' ? JSON.stringify(v) : v));
+    const r = await db.query<{ linha: L }>(
+      `with nova as (insert into ${tabela} (${colunas}) values (${marcas}) returning *)
+       select to_jsonb(nova) as linha from nova`,
+      valores,
+    );
+    return r.rows[0].linha;
+  }
+
+  /** O pagamento com as ligações embutidas, como `select *, pagamento_sessoes(sessao_id)` do PostgREST. */
+  async function lerPagamento(id: string): Promise<LinhaPagamentoComSessoes> {
+    const r = await db.query<{ linha: LinhaPagamentoComSessoes }>(
+      `select to_jsonb(p) || jsonb_build_object(
+                'pagamento_sessoes',
+                coalesce((select jsonb_agg(jsonb_build_object('sessao_id', ps.sessao_id))
+                          from pagamento_sessoes ps where ps.pagamento_id = p.id), '[]'::jsonb)
+              ) as linha
+       from pagamentos p where p.id = $1`,
+      [id],
+    );
+    return r.rows[0].linha;
+  }
+
+  it('cada …ParaLinha entra na tabela migrada como usuária e volta igual pelo linhaPara… correspondente', async () => {
+    await comoUsuario(db, await criarUsuario(db));
+
+    const configuracoes = { ...CONFIGURACOES_PADRAO, valorAvaliacaoPadraoCentavos: 180000 };
+    const linhaConfiguracoes = await inserirLinha<LinhaConfiguracoes>(
+      'configuracoes',
+      configuracoesParaLinha(configuracoes),
+    );
+    expect(linhaParaConfiguracoes(linhaConfiguracoes)).toEqual(configuracoes);
+
+    const parceiro = { nome: 'Dra. Camila Rocha', profissao: 'Neuropediatra', contato: '(85) 90000-0101', observacoes: 'Encaminha' };
+    const linhaParceiro = await inserirLinha<LinhaParceiro>('parceiros', parceiroParaLinha(parceiro));
+    expect(linhaParaParceiro(linhaParceiro)).toEqual({ ...parceiro, id: linhaParceiro.id });
+
+    const paciente = {
+      nome: 'Pedro Henrique Lima',
+      dataNascimento: '2017-03-09',
+      cpf: '529.982.247-25',
+      escola: 'Escola Arco-Íris',
+      serie: '4º ano',
+      observacoes: 'Prefere desenhar.',
+      status: 'ativo' as const,
+      tipo: 'avaliacao' as const,
+      dataEntrada: '2026-10-14',
+      dataAlta: '2026-12-16',
+      parceiroId: linhaParceiro.id,
+      formaCobranca: 'mensal' as const,
+      valorSessaoCentavos: 20050,
+    };
+    const linhaPaciente = await inserirLinha<LinhaPaciente>('pacientes', pacienteParaLinha(paciente));
+    expect(linhaParaPaciente(linhaPaciente)).toEqual({ ...paciente, id: linhaPaciente.id });
+    const pacienteId = linhaPaciente.id;
+
+    const responsavel = {
+      pacienteId,
+      nome: 'Carlos Lima',
+      parentesco: 'Pai',
+      cpf: '529.982.247-25',
+      telefone: '(85) 90000-0002',
+      email: 'carlos@exemplo.com',
+      principal: true,
+      pagador: true,
+    };
+    const linhaResponsavel = await inserirLinha<LinhaResponsavel>('responsaveis', responsavelParaLinha(responsavel));
+    expect(linhaParaResponsavel(linhaResponsavel)).toEqual({ ...responsavel, id: linhaResponsavel.id });
+
+    const horario = {
+      pacienteId,
+      diaSemana: 3,
+      hora: '09:00',
+      duracaoMin: 50,
+      validoDe: '2026-10-14',
+      validoAte: '2026-12-16',
+    };
+    const linhaHorario = await inserirLinha<LinhaHorario>('horarios_fixos', horarioParaLinha(horario));
+    expect(linhaParaHorario(linhaHorario)).toEqual({ ...horario, id: linhaHorario.id });
+
+    const avaliacao = {
+      pacienteId,
+      inicio: '2026-10-14',
+      fim: '2026-12-16',
+      sessoesPrevistas: 10,
+      etapas: [
+        { nome: 'Entrevista com os responsáveis', feita: true },
+        { nome: 'Testes aplicados', feita: false },
+      ],
+      valorPrevistoCentavos: 180000,
+      descontoTipo: 'percentual' as const,
+      descontoValor: 10,
+    };
+    const linhaAvaliacao = await inserirLinha<LinhaAvaliacao>('avaliacoes', avaliacaoParaLinha(avaliacao));
+    expect(linhaParaAvaliacao(linhaAvaliacao)).toEqual({ ...avaliacao, id: linhaAvaliacao.id });
+
+    const destino = {
+      pacienteId,
+      inicio: '2026-10-28T12:00:00.000Z',
+      duracaoMin: 50,
+      tipo: 'avaliacao' as const,
+      acompanhamentoFamiliar: false,
+      origem: 'remarcacao' as const,
+      horarioFixoId: null,
+      dataOcorrencia: null,
+      situacao: 'agendada' as const,
+      remarcadaPara: null,
+      avaliacaoId: linhaAvaliacao.id,
+      confirmada: false,
+      observacao: null,
+      valorCentavos: null,
+    };
+    const linhaDestino = await inserirLinha<LinhaSessao>('sessoes', sessaoParaLinha(destino));
+    expect(linhaParaSessao(linhaDestino)).toEqual({ ...destino, id: linhaDestino.id });
+
+    const sessao = {
+      ...destino,
+      inicio: '2026-10-21T12:00:00.000Z',
+      acompanhamentoFamiliar: true,
+      origem: 'fixa' as const,
+      horarioFixoId: linhaHorario.id,
+      dataOcorrencia: '2026-10-21',
+      situacao: 'remarcada' as const,
+      remarcadaPara: linhaDestino.id,
+      confirmada: true,
+      observacao: 'Trazer os desenhos',
+      valorCentavos: 16000,
+    };
+    const linhaSessao = await inserirLinha<LinhaSessao>('sessoes', sessaoParaLinha(sessao));
+    expect(linhaParaSessao(linhaSessao)).toEqual({ ...sessao, id: linhaSessao.id });
+
+    const bloqueio = { inicio: '2026-12-21', fim: '2027-01-04', motivo: 'Recesso' };
+    const linhaBloqueio = await inserirLinha<LinhaBloqueio>('bloqueios', bloqueioParaLinha(bloqueio));
+    expect(linhaParaBloqueio(linhaBloqueio)).toEqual({ ...bloqueio, id: linhaBloqueio.id });
+
+    // Os três jeitos de pagar: sessões (com ligação), mês e avaliação. Sem `sessaoIds` na linha.
+    const dePagamento = {
+      pacienteId,
+      data: '2026-10-21',
+      valorCentavos: 16000,
+      forma: 'pix' as const,
+      observacao: 'Pago na hora',
+      referencia: 'sessoes' as const,
+      mesReferencia: null,
+      avaliacaoId: null,
+      sessaoIds: [linhaSessao.id],
+    };
+    const linhaPagamento = await inserirLinha<{ id: string }>('pagamentos', pagamentoParaLinha(dePagamento));
+    await db.query(`insert into pagamento_sessoes (pagamento_id, sessao_id) values ($1, $2)`, [
+      linhaPagamento.id,
+      linhaSessao.id,
+    ]);
+    expect(linhaParaPagamento(await lerPagamento(linhaPagamento.id))).toEqual({ ...dePagamento, id: linhaPagamento.id });
+
+    const doMes = { ...dePagamento, referencia: 'mes' as const, mesReferencia: '2026-10-01', observacao: null, sessaoIds: [] };
+    const linhaDoMes = await inserirLinha<{ id: string }>('pagamentos', pagamentoParaLinha(doMes));
+    expect(linhaParaPagamento(await lerPagamento(linhaDoMes.id))).toEqual({ ...doMes, id: linhaDoMes.id });
+
+    const daAvaliacao = {
+      ...dePagamento,
+      valorCentavos: 81000,
+      referencia: 'avaliacao' as const,
+      avaliacaoId: linhaAvaliacao.id,
+      sessaoIds: [],
+    };
+    const linhaDaAvaliacao = await inserirLinha<{ id: string }>('pagamentos', pagamentoParaLinha(daAvaliacao));
+    expect(linhaParaPagamento(await lerPagamento(linhaDaAvaliacao.id))).toEqual({
+      ...daAvaliacao,
+      id: linhaDaAvaliacao.id,
+    });
+  });
+
+  it('registrar_pagamento aceita exatamente os parâmetros que o app manda, nos três jeitos de pagar', async () => {
+    await comoUsuario(db, await criarUsuario(db));
+    const pacienteId = await novoPaciente();
+    const avaliacaoId = await novaAvaliacao(pacienteId);
+    const sessaoId = await novaSessao(pacienteId);
+    const base = {
+      pacienteId,
+      data: '2026-10-21',
+      valorCentavos: 16000,
+      forma: 'transferencia' as const,
+      observacao: null,
+      mesReferencia: null,
+      avaliacaoId: null,
+      sessaoIds: [] as string[],
+    };
+
+    const chamar = async (p: Parameters<typeof argumentosRegistrarPagamento>[0]) => {
+      const argumentos = argumentosRegistrarPagamento(p);
+      const nomes = Object.keys(argumentos);
+      // Parâmetros nomeados, como o PostgREST chama: o conjunto de nomes tem que ser o da função.
+      const r = await db.query<{ id: string }>(
+        `select * from registrar_pagamento(${nomes.map((n, i) => `${n} => $${i + 1}`).join(', ')})`,
+        Object.values(argumentos),
+      );
+      return lerPagamento(r.rows[0].id);
+    };
+
+    const deSessoes = await chamar({ ...base, referencia: 'sessoes', sessaoIds: [sessaoId] });
+    expect(linhaParaPagamento(deSessoes)).toMatchObject({ referencia: 'sessoes', sessaoIds: [sessaoId], forma: 'transferencia' });
+    const doMes = await chamar({ ...base, referencia: 'mes', mesReferencia: '2026-10-01', sessaoIds: [sessaoId] });
+    expect(linhaParaPagamento(doMes)).toMatchObject({ referencia: 'mes', mesReferencia: '2026-10-01', sessaoIds: [] });
+    const daAvaliacao = await chamar({ ...base, referencia: 'avaliacao', avaliacaoId });
+    expect(linhaParaPagamento(daAvaliacao)).toMatchObject({ referencia: 'avaliacao', avaliacaoId, sessaoIds: [] });
   });
 });

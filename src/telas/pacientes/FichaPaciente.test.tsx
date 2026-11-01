@@ -10,8 +10,9 @@ describe('FichaPaciente — cabeçalho', () => {
   it('psicoterapia: nome, tipo, e sem a seção Avaliação', async () => {
     abrirFicha(ANA);
 
-    expect(await screen.findByRole('heading', { level: 1, name: 'Ana Clara Souza' })).toBeInTheDocument();
-    expect(screen.getByText('Psicoterapia')).toBeInTheDocument();
+    const titulo = await screen.findByRole('heading', { level: 1, name: 'Ana Clara Souza' });
+    // A lista de sessões também mostra "Psicoterapia" (o histórico de outubro dela): olha só o cabeçalho.
+    expect(within(titulo.parentElement!).getByText('Psicoterapia')).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Avaliação' })).not.toBeInTheDocument();
   });
 
