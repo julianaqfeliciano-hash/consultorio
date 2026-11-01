@@ -287,6 +287,27 @@ describe('pendenciasDoPaciente', () => {
       expect(r.totalEmAbertoCentavos).toBe(40000);
     });
 
+    it('pagamento do mês de outro paciente, na mesma lista, não quita o mês deste', () => {
+      const deOutro = pagamento('mes', 60000, { id: 'px', pacienteId: 'p2', mesReferencia: '2026-10-01' });
+      const r = pendenciasDoPaciente({ paciente: mensal, sessoes: outubro, pagamentos: [deOutro], avaliacao: null, hoje });
+      expect(r.meses).toHaveLength(1);
+      expect(r.meses[0]).toMatchObject({ mes: '2026-10-01', situacao: 'devendo', pagamento: null, totalCentavos: 60000 });
+      expect(r.totalEmAbertoCentavos).toBe(60000);
+    });
+
+    it('pagamentos de outro paciente (sessões e avaliação) também são ignorados', () => {
+      const avaliacao = avaliacaoExemplo({ id: 'av1', inicio: '2026-10-20', valorPrevistoCentavos: 100000 });
+      const sessoes = [cobrada('s1', OUT_06)];
+      const deOutro = [
+        pagamento('sessoes', 20000, { id: 'py', pacienteId: 'p2', sessaoIds: ['s1'] }),
+        pagamento('avaliacao', 100000, { id: 'pz', pacienteId: 'p2', avaliacaoId: 'av1' }),
+      ];
+      const r = pendenciasDoPaciente({ paciente: porSessao, sessoes, pagamentos: deOutro, avaliacao, hoje });
+      expect(r.sessoesAbertas.map((s) => s.id)).toEqual(['s1']);
+      expect(r.avaliacao).toEqual({ valorFinalCentavos: 100000, pagoCentavos: 0, faltaCentavos: 100000 });
+      expect(r.totalEmAbertoCentavos).toBe(120000);
+    });
+
     it('as sessões do mês e a lista de meses saem em ordem, mesmo com a entrada embaralhada', () => {
       const sessoes = [cobrada('s9', NOV_03), outubro[2], outubro[0], outubro[1]];
       const r = pendenciasDoPaciente({ paciente: mensal, sessoes, pagamentos: [], avaliacao: null, hoje: '2026-11-03' });
@@ -341,6 +362,22 @@ describe('pendenciasDoPaciente', () => {
       const doMes = pagamento('mes', 20000, { mesReferencia: '2026-10-01', sessaoIds: ['s1'] });
       const r = pendenciasDoPaciente({ paciente: porSessao, sessoes, pagamentos: [doMes], avaliacao: null, hoje });
       expect(r.sessoesAbertas.map((s) => s.id)).toEqual(['s1']);
+    });
+
+    it('sessão de valor zero não fica em aberto (não há pagamento de zero para quitá-la)', () => {
+      const sessoes = [cobrada('s1', OUT_06, 0), cobrada('s2', OUT_13, 0, { tipo: 'avaliacao', situacao: 'falta_sem_aviso' })];
+      const r = pendenciasDoPaciente({ paciente: porSessao, sessoes, pagamentos: [], avaliacao: null, hoje });
+      expect(r.sessoesAbertas).toEqual([]);
+      expect(r.totalEmAbertoCentavos).toBe(0);
+      expect(r.desde).toBeNull();
+    });
+
+    it('sessão de valor zero mais antiga que uma dívida de verdade não puxa o desde', () => {
+      const sessoes = [cobrada('s1', OUT_06, 0), cobrada('s2', OUT_13)];
+      const r = pendenciasDoPaciente({ paciente: porSessao, sessoes, pagamentos: [], avaliacao: null, hoje });
+      expect(r.sessoesAbertas.map((s) => s.id)).toEqual(['s2']);
+      expect(r.totalEmAbertoCentavos).toBe(20000);
+      expect(r.desde).toBe('2026-10-13');
     });
 
     it('a data de desde é a data local da sessão', () => {

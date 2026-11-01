@@ -130,21 +130,26 @@ export function pendenciasDoPaciente(e: {
   avaliacao: Avaliacao | null;
   hoje: DataISO;
 }): Pendencias {
+  // A lista pode vir com os pagamentos de todos os pacientes: só os deste contam.
+  const pagamentos = e.pagamentos.filter((p) => p.pacienteId === e.paciente.id);
   const pagasIndividualmente = new Set<Id>(
-    e.pagamentos.filter((p) => p.referencia === 'sessoes').flatMap((p) => p.sessaoIds),
+    pagamentos.filter((p) => p.referencia === 'sessoes').flatMap((p) => p.sessaoIds),
   );
   const cobradas = e.sessoes.filter((s) => s.valorCentavos !== null && !pagasIndividualmente.has(s.id));
 
-  const sessoesAbertas = cobradas.filter((s) => ehCobradaAvulsa(s, e.paciente)).sort(porInicio);
+  // Sessão de valor zero não é dívida: não existe pagamento de zero que a quite.
+  const sessoesAbertas = cobradas
+    .filter((s) => (s.valorCentavos ?? 0) > 0 && ehCobradaAvulsa(s, e.paciente))
+    .sort(porInicio);
   const doMes = cobradas.filter((s) => s.tipo === 'psicoterapia' && e.paciente.formaCobranca === 'mensal');
-  const meses = e.paciente.formaCobranca === 'mensal' ? montarMeses(doMes, e.pagamentos, e.hoje) : [];
+  const meses = e.paciente.formaCobranca === 'mensal' ? montarMeses(doMes, pagamentos, e.hoje) : [];
 
   let avaliacao: Pendencias['avaliacao'] = null;
   if (e.avaliacao !== null) {
     const id = e.avaliacao.id;
     const valorFinalCentavos = valorFinalDaAvaliacao(e.avaliacao);
     const pagoCentavos = soma(
-      e.pagamentos.filter((p) => p.referencia === 'avaliacao' && p.avaliacaoId === id).map((p) => p.valorCentavos),
+      pagamentos.filter((p) => p.referencia === 'avaliacao' && p.avaliacaoId === id).map((p) => p.valorCentavos),
     );
     avaliacao = { valorFinalCentavos, pagoCentavos, faltaCentavos: Math.max(0, valorFinalCentavos - pagoCentavos) };
   }
