@@ -9,6 +9,8 @@ const TABELAS = [
   'configuracoes',
   'horarios_fixos',
   'pacientes',
+  'pagamento_sessoes',
+  'pagamentos',
   'parceiros',
   'responsaveis',
   'sessoes',
