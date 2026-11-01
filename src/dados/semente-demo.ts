@@ -207,6 +207,9 @@ export function sementeDemo(hoje: DataISO): Required<SementeMemoria> {
       fim: null,
       sessoesPrevistas: 10,
       etapas: ETAPAS_AVALIACAO_PADRAO.map((nome, i) => ({ nome, feita: i === 0 })),
+      valorPrevistoCentavos: 0,
+      descontoTipo: 'nenhum',
+      descontoValor: 0,
     },
   ];
 
@@ -225,6 +228,7 @@ export function sementeDemo(hoje: DataISO): Required<SementeMemoria> {
     avaliacaoId: 'demo-avaliacao-pedro',
     confirmada: true,
     observacao: null,
+    valorCentavos: null,
   }));
 
   return {

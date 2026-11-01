@@ -51,6 +51,9 @@ export function avaliacaoExemplo(sobre: Partial<Avaliacao> = {}): Avaliacao {
     fim: null,
     sessoesPrevistas: 10,
     etapas: [],
+    valorPrevistoCentavos: 0,
+    descontoTipo: 'nenhum',
+    descontoValor: 0,
     ...sobre,
   };
 }
@@ -72,6 +75,7 @@ export function sessaoExemplo(sobre: Partial<Sessao> = {}): Sessao {
     avaliacaoId: null,
     confirmada: false,
     observacao: null,
+    valorCentavos: null,
     ...sobre,
   };
 }

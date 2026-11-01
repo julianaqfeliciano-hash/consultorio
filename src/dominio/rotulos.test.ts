@@ -6,7 +6,9 @@ import {
   COR_TIPO,
   descreverHorario,
   ICONE_SITUACAO,
+  ROTULO_DESCONTO,
   ROTULO_DIA_SEMANA,
+  ROTULO_FORMA,
   ROTULO_SITUACAO,
   ROTULO_TIPO,
   tipoVisual,
@@ -51,6 +53,25 @@ describe('rótulos', () => {
       avaliacao: 'border-l-amarelo',
       psicoterapia: 'border-l-laranja',
       familiar: 'border-l-azul-claro',
+    });
+  });
+});
+
+describe('rótulos de cobrança', () => {
+  it('formas de pagamento têm o texto exato da interface', () => {
+    expect(ROTULO_FORMA).toEqual({
+      pix: 'Pix',
+      dinheiro: 'Dinheiro',
+      cartao: 'Cartão',
+      transferencia: 'Transferência',
+    });
+  });
+
+  it('tipos de desconto têm o texto exato da interface', () => {
+    expect(ROTULO_DESCONTO).toEqual({
+      nenhum: 'Sem desconto',
+      reais: 'Em reais',
+      percentual: 'Em porcentagem',
     });
   });
 });

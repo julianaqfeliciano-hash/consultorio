@@ -78,6 +78,9 @@ export function testarContrato(nome: string, fabrica: () => Promise<Repositorio>
         { nome: 'Entrevista com os responsáveis', feita: true },
         { nome: 'Testes aplicados', feita: false },
       ],
+      valorPrevistoCentavos: 0,
+      descontoTipo: 'nenhum',
+      descontoValor: 0,
       ...sobre,
     });
 
@@ -95,6 +98,7 @@ export function testarContrato(nome: string, fabrica: () => Promise<Repositorio>
       avaliacaoId: null,
       confirmada: false,
       observacao: null,
+      valorCentavos: null,
       ...sobre,
     });
 

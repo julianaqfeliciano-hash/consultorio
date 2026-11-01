@@ -13,6 +13,7 @@ import type {
   SituacaoSessao,
   StatusPaciente,
   TipoAtendimento,
+  TipoDesconto,
 } from '../dominio/tipos';
 import type { Rascunho } from './repositorio';
 
@@ -45,6 +46,7 @@ export interface LinhaConfiguracoes {
   mensagem_whatsapp: string;
   semanas_geradas: number;
   bloqueio_minutos: number;
+  valor_avaliacao_padrao_centavos: number;
 }
 
 export interface LinhaParceiro {
@@ -103,6 +105,9 @@ export interface LinhaAvaliacao {
   sessoes_previstas: number;
   /** jsonb: lista de { nome, feita }. */
   etapas: unknown;
+  valor_previsto_centavos: number;
+  desconto_tipo: TipoDesconto;
+  desconto_valor: number;
 }
 
 export interface LinhaSessao {
@@ -121,6 +126,7 @@ export interface LinhaSessao {
   avaliacao_id: string | null;
   confirmada: boolean;
   observacao: string | null;
+  valor_centavos: number | null;
 }
 
 export interface LinhaBloqueio {
@@ -182,6 +188,7 @@ export function configuracoesParaLinha(c: Configuracoes): LinhaConfiguracoes {
     mensagem_whatsapp: c.mensagemWhatsapp,
     semanas_geradas: c.semanasGeradas,
     bloqueio_minutos: c.bloqueioMinutos,
+    valor_avaliacao_padrao_centavos: c.valorAvaliacaoPadraoCentavos,
   };
 }
 
@@ -202,6 +209,7 @@ export function linhaParaConfiguracoes(l: LinhaConfiguracoes): Configuracoes {
     mensagemWhatsapp: l.mensagem_whatsapp,
     semanasGeradas: l.semanas_geradas,
     bloqueioMinutos: l.bloqueio_minutos,
+    valorAvaliacaoPadraoCentavos: l.valor_avaliacao_padrao_centavos,
   };
 }
 
@@ -336,6 +344,9 @@ export function avaliacaoParaLinha(a: Rascunho<Avaliacao>): Rascunho<LinhaAvalia
     fim: a.fim,
     sessoes_previstas: a.sessoesPrevistas,
     etapas: a.etapas.map((e) => ({ nome: e.nome, feita: e.feita })),
+    valor_previsto_centavos: a.valorPrevistoCentavos,
+    desconto_tipo: a.descontoTipo,
+    desconto_valor: a.descontoValor,
   };
 }
 
@@ -347,6 +358,9 @@ export function linhaParaAvaliacao(l: LinhaAvaliacao): Avaliacao {
     fim: l.fim,
     sessoesPrevistas: l.sessoes_previstas,
     etapas: lerEtapas(l.etapas),
+    valorPrevistoCentavos: l.valor_previsto_centavos,
+    descontoTipo: l.desconto_tipo,
+    descontoValor: l.desconto_valor,
   };
 }
 
@@ -366,6 +380,7 @@ export function sessaoParaLinha(s: Rascunho<Sessao>): Rascunho<LinhaSessao> {
     avaliacao_id: s.avaliacaoId,
     confirmada: s.confirmada,
     observacao: s.observacao,
+    valor_centavos: s.valorCentavos,
   };
 }
 
@@ -385,6 +400,7 @@ export function linhaParaSessao(l: LinhaSessao): Sessao {
     avaliacaoId: l.avaliacao_id,
     confirmada: l.confirmada,
     observacao: l.observacao,
+    valorCentavos: l.valor_centavos,
   };
 }
 
@@ -401,6 +417,7 @@ const COLUNAS_MUDANCAS_SESSAO: Record<keyof Omit<Sessao, 'id' | 'pacienteId'>, k
   avaliacaoId: 'avaliacao_id',
   confirmada: 'confirmada',
   observacao: 'observacao',
+  valorCentavos: 'valor_centavos',
 };
 
 /** Só as colunas que mudaram. `undefined` = não mexer; `null` = limpar o campo. */

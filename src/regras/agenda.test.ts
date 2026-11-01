@@ -66,6 +66,7 @@ describe('gerarOcorrencias', () => {
       avaliacaoId: null,
       confirmada: false,
       observacao: null,
+      valorCentavos: null,
     });
   });
 
@@ -198,6 +199,7 @@ function sessao(parcial: Partial<Sessao> & Pick<Sessao, 'id'>): Sessao {
     avaliacaoId: null,
     confirmada: false,
     observacao: null,
+    valorCentavos: null,
     ...parcial,
   };
 }
@@ -270,7 +272,17 @@ describe('selecionarAgendadas', () => {
 });
 
 describe('sessaoAtualNaAvaliacao', () => {
-  const avaliacao: Avaliacao = { id: 'av1', pacienteId: 'p1', inicio: '2026-10-14', fim: null, sessoesPrevistas: 10, etapas: [] };
+  const avaliacao: Avaliacao = {
+    id: 'av1',
+    pacienteId: 'p1',
+    inicio: '2026-10-14',
+    fim: null,
+    sessoesPrevistas: 10,
+    etapas: [],
+    valorPrevistoCentavos: 0,
+    descontoTipo: 'nenhum',
+    descontoValor: 0,
+  };
   const base = { tipo: 'avaliacao' as const, avaliacaoId: 'av1' };
 
   it('sem nenhuma sessão realizada, é a sessão 1', () => {

@@ -72,7 +72,7 @@ describe('SecaoHorarios', () => {
         configuracoes: {
           nomeCompleto: '', nomeExibicao: '', titulo: '', crp: '', cpf: '', telefone: '', email: '', endereco: '',
           cidade: '', instagram: '', duracaoPadraoMin: 40, sessoesAvaliacaoPadrao: 10, mensagemWhatsapp: 'x',
-          semanasGeradas: 2, bloqueioMinutos: 15,
+          semanasGeradas: 2, bloqueioMinutos: 15, valorAvaliacaoPadraoCentavos: 0,
         },
       });
       const { usuaria, secao } = await abrirSecao('p1', repositorio);

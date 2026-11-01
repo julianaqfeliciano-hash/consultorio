@@ -187,12 +187,32 @@ describe('avaliação', () => {
       { nome: 'Entrevista com os responsáveis', feita: true },
       { nome: 'Testes aplicados', feita: false },
     ],
+    valorPrevistoCentavos: 180000,
+    descontoTipo: 'percentual',
+    descontoValor: 15,
   };
 
   it('ida e volta preserva as etapas e os demais campos', () => {
     expect(linhaParaAvaliacao(comId<LinhaAvaliacao>(avaliacaoParaLinha(avaliacao)))).toEqual(avaliacao);
     const encerrada = { ...avaliacao, fim: '2026-12-16', etapas: [] };
     expect(linhaParaAvaliacao(comId<LinhaAvaliacao>(avaliacaoParaLinha(encerrada)))).toEqual(encerrada);
+  });
+
+  it.each([
+    ['sem desconto', { descontoTipo: 'nenhum', descontoValor: 0 }],
+    ['desconto em reais (centavos)', { descontoTipo: 'reais', descontoValor: 20000 }],
+    ['desconto em porcentagem', { descontoTipo: 'percentual', descontoValor: 15 }],
+  ] as const)('ida e volta preserva o valor previsto e o desconto (%s)', (_nome, desconto) => {
+    const a: Avaliacao = { ...avaliacao, ...desconto };
+    expect(linhaParaAvaliacao(comId<LinhaAvaliacao>(avaliacaoParaLinha(a)))).toEqual(a);
+  });
+
+  it('usa as colunas do banco para o valor previsto e o desconto', () => {
+    expect(avaliacaoParaLinha(avaliacao)).toMatchObject({
+      valor_previsto_centavos: 180000,
+      desconto_tipo: 'percentual',
+      desconto_valor: 15,
+    });
   });
 
   it('as etapas vão como lista (jsonb)', () => {
@@ -221,6 +241,7 @@ describe('sessão', () => {
     avaliacaoId: '55555555-5555-4555-8555-555555555555',
     confirmada: true,
     observacao: 'Trazer os testes',
+    valorCentavos: 18000,
   };
   const avulsa: Sessao = {
     ...sessao,
@@ -233,6 +254,7 @@ describe('sessão', () => {
     situacao: 'agendada',
     confirmada: false,
     acompanhamentoFamiliar: false,
+    valorCentavos: null,
   };
 
   it.each([
@@ -258,7 +280,16 @@ describe('sessão', () => {
       avaliacao_id: '55555555-5555-4555-8555-555555555555',
       confirmada: true,
       observacao: 'Trazer os testes',
+      valor_centavos: 18000,
     });
+  });
+
+  it('o valor da sessão vai e volta, inclusive o zero e o nulo (ainda não cobrada)', () => {
+    for (const valorCentavos of [18000, 0, null]) {
+      const s: Sessao = { ...sessao, valorCentavos };
+      expect(sessaoParaLinha(s).valor_centavos).toBe(valorCentavos);
+      expect(linhaParaSessao(comId<LinhaSessao>(sessaoParaLinha(s))).valorCentavos).toBe(valorCentavos);
+    }
   });
 
   it.each([
@@ -283,6 +314,12 @@ describe('sessão', () => {
       expect(mudancasSessaoParaLinha({ remarcadaPara: null, observacao: undefined })).toEqual({
         remarcada_para: null,
       });
+    });
+
+    it('grava e limpa o valor da sessão', () => {
+      expect(mudancasSessaoParaLinha({ valorCentavos: 20000 })).toEqual({ valor_centavos: 20000 });
+      expect(mudancasSessaoParaLinha({ valorCentavos: 0 })).toEqual({ valor_centavos: 0 });
+      expect(mudancasSessaoParaLinha({ valorCentavos: null })).toEqual({ valor_centavos: null });
     });
 
     it('cobre todas as colunas, no mesmo formato de sessaoParaLinha', () => {
@@ -343,6 +380,13 @@ describe('configurações', () => {
     });
     expect(linha).not.toHaveProperty('dono');
     expect(linha).not.toHaveProperty('criado_em');
+  });
+
+  it('o valor padrão da avaliação vai e volta pela coluna valor_avaliacao_padrao_centavos', () => {
+    const c = { ...CONFIGURACOES_PADRAO, valorAvaliacaoPadraoCentavos: 180000 };
+    const linha = configuracoesParaLinha(c);
+    expect(linha.valor_avaliacao_padrao_centavos).toBe(180000);
+    expect(linhaParaConfiguracoes(linha)).toEqual(c);
   });
 
   it('lê textos nulos do banco como texto vazio', () => {

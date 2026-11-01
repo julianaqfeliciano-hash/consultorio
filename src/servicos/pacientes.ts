@@ -22,6 +22,9 @@ function novaAvaliacao(pacienteId: Id, inicio: DataISO, config: Configuracoes): 
     fim: null,
     sessoesPrevistas: config.sessoesAvaliacaoPadrao,
     etapas: ETAPAS_AVALIACAO_PADRAO.map((nome) => ({ nome, feita: false })),
+    valorPrevistoCentavos: 0,
+    descontoTipo: 'nenhum',
+    descontoValor: 0,
   };
 }
 

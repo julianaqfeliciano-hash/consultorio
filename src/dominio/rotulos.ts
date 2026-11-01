@@ -7,7 +7,7 @@ import {
   Clock,
   type LucideIcon,
 } from 'lucide-react';
-import type { HorarioFixo, Sessao, SituacaoSessao, TipoAtendimento } from './tipos';
+import type { FormaPagamento, HorarioFixo, Sessao, SituacaoSessao, TipoAtendimento, TipoDesconto } from './tipos';
 
 /** Situação da sessão em texto. Aparece sempre junto do ícone, nunca só como cor. */
 export const ROTULO_SITUACAO: Record<SituacaoSessao, string> = {
@@ -26,6 +26,19 @@ export const ICONE_SITUACAO: Record<SituacaoSessao, LucideIcon> = {
   falta_sem_aviso: CircleX,
   cancelada: CalendarX,
   remarcada: CalendarSync,
+};
+
+export const ROTULO_FORMA: Record<FormaPagamento, string> = {
+  pix: 'Pix',
+  dinheiro: 'Dinheiro',
+  cartao: 'Cartão',
+  transferencia: 'Transferência',
+};
+
+export const ROTULO_DESCONTO: Record<TipoDesconto, string> = {
+  nenhum: 'Sem desconto',
+  reais: 'Em reais',
+  percentual: 'Em porcentagem',
 };
 
 /** Os dois tipos de atendimento mais a sessão com os responsáveis, que tem identidade própria na agenda. */

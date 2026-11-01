@@ -62,6 +62,7 @@ export async function remarcar(repo: Repositorio, sessao: Sessao, novoInicio: st
     avaliacaoId: sessao.avaliacaoId,
     confirmada: false,
     observacao: null,
+    valorCentavos: null,
   });
   await repo.atualizarSessao(sessao.id, { situacao: 'remarcada', remarcadaPara: nova.id });
   return nova;
@@ -87,6 +88,7 @@ export async function criarAvulsa(
     avaliacaoId: paciente.tipo === 'avaliacao' ? (avaliacao?.id ?? null) : null,
     confirmada: false,
     observacao: null,
+    valorCentavos: null,
   });
 }
 

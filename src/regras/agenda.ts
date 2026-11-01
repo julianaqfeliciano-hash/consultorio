@@ -98,6 +98,7 @@ export function gerarOcorrencias(e: {
         avaliacaoId: h.tipoPaciente === 'avaliacao' ? h.avaliacaoId : null,
         confirmada: false,
         observacao: null,
+        valorCentavos: null,
       });
     }
   }

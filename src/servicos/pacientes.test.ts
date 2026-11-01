@@ -50,6 +50,9 @@ describe('criarPaciente', () => {
       fim: null,
       sessoesPrevistas: 10,
       etapas: ETAPAS_AVALIACAO_PADRAO.map((nome) => ({ nome, feita: false })),
+      valorPrevistoCentavos: 0,
+      descontoTipo: 'nenhum',
+      descontoValor: 0,
     });
     expect(avaliacao?.etapas).toHaveLength(5);
   });
@@ -419,6 +422,9 @@ describe('mudarTipo', () => {
       fim: null,
       sessoesPrevistas: 10,
       etapas: ETAPAS_AVALIACAO_PADRAO.map((nome) => ({ nome, feita: false })),
+      valorPrevistoCentavos: 0,
+      descontoTipo: 'nenhum',
+      descontoValor: 0,
     });
     const avaliacaoId = ficha?.avaliacao?.id;
 

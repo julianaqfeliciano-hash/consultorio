@@ -40,6 +40,7 @@ export const CONFIGURACOES_PADRAO: Configuracoes = {
   mensagemWhatsapp: MENSAGEM_WHATSAPP_PADRAO,
   semanasGeradas: 4,
   bloqueioMinutos: 15,
+  valorAvaliacaoPadraoCentavos: 0,
 };
 
 /** Etapas que toda avaliação nova já traz para marcar. */
