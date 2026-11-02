@@ -106,9 +106,9 @@ describe('SecaoAtendimento', () => {
 
     it('se a troca falhar no meio, a ficha mostra o tipo já gravado e a pergunta continua sendo a mesma (não vira "mudar de volta")', async () => {
       const base = repositorioDemo();
-      // O tipo é gravado primeiro; tirar as sessões antigas da agenda é uma etapa seguinte e falha.
-      const removerSessoes = vi.fn().mockRejectedValueOnce(new Error('sem rede')).mockImplementation(base.removerSessoes);
-      const { repositorio, usuaria } = abrirFicha(PEDRO, { ...base, removerSessoes });
+      // O tipo é gravado primeiro; completar a agenda com as sessões novas é a etapa final e falha.
+      const inserirOcorrencias = vi.fn().mockRejectedValueOnce(new Error('sem rede')).mockImplementation(base.inserirOcorrencias);
+      const { repositorio, usuaria } = abrirFicha(PEDRO, { ...base, inserirOcorrencias });
       const atendimento = await screen.findByRole('region', { name: 'Atendimento' });
 
       await usuaria.click(within(atendimento).getByRole('button', { name: 'Mudar para psicoterapia' }));

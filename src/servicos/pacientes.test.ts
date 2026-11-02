@@ -89,6 +89,19 @@ describe('criarPaciente', () => {
     expect((await base.obterFicha('p-fixo'))?.avaliacao?.etapas).toHaveLength(5);
   });
 
+  it('a avaliação nasce com o valor padrão das configurações, sem desconto', async () => {
+    const repo = criarRepositorioMemoria();
+    const config = { ...CONFIGURACOES_PADRAO, valorAvaliacaoPadraoCentavos: 180000 };
+
+    const paciente = await criarPaciente(repo, dadosPacienteExemplo({ tipo: 'avaliacao' }), config, '2026-11-02');
+
+    expect((await repo.obterFicha(paciente.id))?.avaliacao).toMatchObject({
+      valorPrevistoCentavos: 180000,
+      descontoTipo: 'nenhum',
+      descontoValor: 0,
+    });
+  });
+
   it('em psicoterapia não cria avaliação', async () => {
     const repo = criarRepositorioMemoria();
     const dados = dadosPacienteExemplo({ tipo: 'psicoterapia' });
@@ -370,6 +383,9 @@ describe('mudarHorarioFixo: ocorrência mexida à mão não volta', () => {
 });
 
 describe('mudarTipo', () => {
+  /** Terça, 10/11, 09:00 em São Paulo: antes da sessão das 14:00 do mesmo dia. */
+  const AGORA = new Date('2026-11-10T09:00:00-03:00');
+
   // Avaliação com 2 realizadas (27/10 e 03/11) e 2 agendadas futuras (10/11 e 17/11).
   const avaliacaoEmAndamento = (sessoesExtras: Sessao[] = []) =>
     novoRepo({
@@ -387,7 +403,7 @@ describe('mudarTipo', () => {
   it('atualiza sessões futuras e preserva o histórico (Review Focus 4)', async () => {
     const repo = avaliacaoEmAndamento();
 
-    await mudarTipo(repo, 'p1', 'psicoterapia', '2026-11-10', CONFIGURACOES_PADRAO);
+    await mudarTipo(repo, 'p1', 'psicoterapia', '2026-11-10', CONFIGURACOES_PADRAO, AGORA);
 
     expect((await repo.obterFicha('p1'))?.paciente.tipo).toBe('psicoterapia');
     const sessoes = await repo.listarSessoesDoPaciente('p1');
@@ -411,7 +427,7 @@ describe('mudarTipo', () => {
       ],
     });
 
-    await mudarTipo(repo, 'p1', 'avaliacao', '2026-11-10', CONFIGURACOES_PADRAO);
+    await mudarTipo(repo, 'p1', 'avaliacao', '2026-11-10', CONFIGURACOES_PADRAO, AGORA);
 
     const ficha = await repo.obterFicha('p1');
     expect(ficha?.paciente.tipo).toBe('avaliacao');
@@ -438,7 +454,7 @@ describe('mudarTipo', () => {
 
   it('usa as semanas das configurações para regenerar a agenda', async () => {
     const repo = avaliacaoEmAndamento();
-    await mudarTipo(repo, 'p1', 'psicoterapia', '2026-11-10', { ...CONFIGURACOES_PADRAO, semanasGeradas: 2 });
+    await mudarTipo(repo, 'p1', 'psicoterapia', '2026-11-10', { ...CONFIGURACOES_PADRAO, semanasGeradas: 2 }, AGORA);
     const futuras = (await repo.listarSessoesDoPaciente('p1')).filter((s) => s.situacao === 'agendada');
     expect(futuras.map((s) => s.dataOcorrencia)).toEqual(['2026-11-10', '2026-11-17']);
   });
@@ -463,7 +479,7 @@ describe('mudarTipo', () => {
       }),
     ]);
 
-    await mudarTipo(repo, 'p1', 'psicoterapia', '2026-11-10', CONFIGURACOES_PADRAO);
+    await mudarTipo(repo, 'p1', 'psicoterapia', '2026-11-10', CONFIGURACOES_PADRAO, AGORA);
 
     const sessoes = await repo.listarSessoesDoPaciente('p1');
     const por = (id: string) => sessoes.find((s) => s.id === id);
@@ -483,26 +499,128 @@ describe('mudarTipo', () => {
     const repo = novoRepo({
       sessoes: [sessaoExemplo({ id: 'avulsa-futura', inicio: '2026-11-12T13:00:00.000Z' })],
     });
-    await mudarTipo(repo, 'p1', 'avaliacao', '2026-11-10', CONFIGURACOES_PADRAO);
+    await mudarTipo(repo, 'p1', 'avaliacao', '2026-11-10', CONFIGURACOES_PADRAO, AGORA);
     const avaliacaoId = (await repo.obterFicha('p1'))?.avaliacao?.id;
     expect(avaliacaoId).toBeTruthy();
     const sessoes = await repo.listarSessoesDoPaciente('p1');
     expect(sessoes.find((s) => s.id === 'avulsa-futura')).toMatchObject({ tipo: 'avaliacao', avaliacaoId });
   });
 
-  it('manter o mesmo tipo não mexe em nada', async () => {
+  it('manter o mesmo tipo não cria avaliação nem mexe nas sessões que já estão certas', async () => {
     const repo = avaliacaoEmAndamento();
     const antes = await repo.listarSessoesDoPaciente('p1');
+    const pacienteAntes = (await repo.obterFicha('p1'))?.paciente;
 
-    await mudarTipo(repo, 'p1', 'avaliacao', '2026-11-10', CONFIGURACOES_PADRAO);
+    await mudarTipo(repo, 'p1', 'avaliacao', '2026-11-10', CONFIGURACOES_PADRAO, AGORA);
 
-    expect(await repo.listarSessoesDoPaciente('p1')).toEqual(antes);
+    const depois = await repo.listarSessoesDoPaciente('p1');
+    // As quatro de antes seguem iguais; a agenda só acrescenta as ocorrências que faltavam (24/11 e 01/12).
+    expect(depois.slice(0, antes.length)).toEqual(antes);
+    expect(depois.slice(antes.length).map((s) => [s.dataOcorrencia, s.tipo, s.avaliacaoId])).toEqual([
+      ['2026-11-24', 'avaliacao', 'av1'],
+      ['2026-12-01', 'avaliacao', 'av1'],
+    ]);
+    expect((await repo.obterFicha('p1'))?.paciente).toEqual(pacienteAntes);
     expect((await repo.obterFicha('p1'))?.avaliacao?.id).toBe('av1');
+  });
+
+  it('a sessão futura é atualizada no lugar: mesmo id, tipo novo e a observação continua; a de hoje que já passou não muda', async () => {
+    const repo = avaliacaoEmAndamento();
+    await repo.atualizarSessao('s-2026-11-17', { observacao: 'Trazer o brinquedo preferido', confirmada: true });
+    const removerSessoes = vi.fn(repo.removerSessoes);
+    // Terça, 10/11, 16:00: a sessão das 14:00 de hoje já passou sem ser marcada.
+    const depoisDaSessaoDeHoje = new Date('2026-11-10T16:00:00-03:00');
+
+    await mudarTipo({ ...repo, removerSessoes }, 'p1', 'psicoterapia', '2026-11-10', CONFIGURACOES_PADRAO, depoisDaSessaoDeHoje);
+
+    const sessoes = await repo.listarSessoesDoPaciente('p1');
+    const por = (id: string) => sessoes.find((s) => s.id === id);
+    expect(por('s-2026-11-17')).toMatchObject({
+      tipo: 'psicoterapia',
+      avaliacaoId: null,
+      observacao: 'Trazer o brinquedo preferido',
+      confirmada: true,
+      situacao: 'agendada',
+      origem: 'fixa',
+      dataOcorrencia: '2026-11-17',
+    });
+    expect(por('s-2026-11-10')).toMatchObject({ tipo: 'avaliacao', avaliacaoId: 'av1', situacao: 'agendada' });
+    // Nada é apagado e refeito: as ocorrências novas só entram depois das que já existiam.
+    expect(removerSessoes).not.toHaveBeenCalled();
+    expect(sessoes.map((s) => s.dataOcorrencia)).toEqual([
+      '2026-10-27',
+      '2026-11-03',
+      '2026-11-10',
+      '2026-11-17',
+      '2026-11-24',
+      '2026-12-01',
+    ]);
+    expect(por(sessoes[4].id)).toMatchObject({ tipo: 'psicoterapia', avaliacaoId: null });
+  });
+
+  it('repetir com o mesmo tipo concilia as sessões que ficaram com o tipo antigo', async () => {
+    // O paciente já é avaliação, mas uma fixa futura e uma avulsa futura ficaram como psicoterapia.
+    const repo = novoRepo({
+      pacientes: [pacienteExemplo({ tipo: 'avaliacao' })],
+      avaliacoes: [avaliacaoExemplo()],
+      sessoes: [
+        fixa('2026-11-03', { situacao: 'compareceu' }),
+        fixa('2026-11-10', { tipo: 'avaliacao', avaliacaoId: 'av1' }),
+        fixa('2026-11-17', { observacao: 'Atrasou da última vez' }),
+        sessaoExemplo({ id: 'avulsa-futura', inicio: '2026-11-12T13:00:00.000Z' }),
+      ],
+    });
+    const salvarPaciente = vi.fn(repo.salvarPaciente);
+    const salvarAvaliacao = vi.fn(repo.salvarAvaliacao);
+
+    await mudarTipo({ ...repo, salvarPaciente, salvarAvaliacao }, 'p1', 'avaliacao', '2026-11-10', CONFIGURACOES_PADRAO, AGORA);
+
+    // Não cria outra avaliação nem regrava o paciente: só concilia.
+    expect(salvarAvaliacao).not.toHaveBeenCalled();
+    expect(salvarPaciente).not.toHaveBeenCalled();
+    expect((await repo.obterFicha('p1'))?.avaliacao?.id).toBe('av1');
+    const sessoes = await repo.listarSessoesDoPaciente('p1');
+    const por = (id: string) => sessoes.find((s) => s.id === id);
+    expect(por('s-2026-11-17')).toMatchObject({ tipo: 'avaliacao', avaliacaoId: 'av1', observacao: 'Atrasou da última vez' });
+    expect(por('avulsa-futura')).toMatchObject({ tipo: 'avaliacao', avaliacaoId: 'av1' });
+    // O que já tinha acontecido continua como estava.
+    expect(por('s-2026-11-03')).toMatchObject({ tipo: 'psicoterapia', avaliacaoId: null });
+  });
+
+  it('repetir com o mesmo tipo concilia também de avaliação para psicoterapia', async () => {
+    const repo = novoRepo({
+      sessoes: [fixa('2026-11-10', { tipo: 'avaliacao', avaliacaoId: 'av1' }), fixa('2026-11-17')],
+    });
+    await mudarTipo(repo, 'p1', 'psicoterapia', '2026-11-10', CONFIGURACOES_PADRAO, AGORA);
+    const sessoes = await repo.listarSessoesDoPaciente('p1');
+    expect(sessoes.find((s) => s.id === 's-2026-11-10')).toMatchObject({ tipo: 'psicoterapia', avaliacaoId: null });
+  });
+
+  it('só considera "futura" a sessão que começa depois de agora (e não o dia de hoje inteiro)', async () => {
+    const repo = avaliacaoEmAndamento();
+    // Exatamente na hora da sessão das 14:00: ela já começou.
+    await mudarTipo(repo, 'p1', 'psicoterapia', '2026-11-10', CONFIGURACOES_PADRAO, new Date('2026-11-10T14:00:00-03:00'));
+    const sessoes = await repo.listarSessoesDoPaciente('p1');
+    expect(sessoes.find((s) => s.id === 's-2026-11-10')).toMatchObject({ tipo: 'avaliacao' });
+    expect(sessoes.find((s) => s.id === 's-2026-11-17')).toMatchObject({ tipo: 'psicoterapia' });
+  });
+
+  it('ao virar avaliação, a avaliação nasce com o valor padrão das configurações', async () => {
+    const repo = novoRepo({ sessoes: [fixa('2026-11-10')] });
+    const config = { ...CONFIGURACOES_PADRAO, valorAvaliacaoPadraoCentavos: 150000 };
+
+    await mudarTipo(repo, 'p1', 'avaliacao', '2026-11-10', config, AGORA);
+
+    expect((await repo.obterFicha('p1'))?.avaliacao).toMatchObject({
+      valorPrevistoCentavos: 150000,
+      descontoTipo: 'nenhum',
+      descontoValor: 0,
+    });
   });
 
   it('rejeita paciente que não existe', async () => {
     const repo = novoRepo();
-    await expect(mudarTipo(repo, 'inexistente', 'avaliacao', '2026-11-10', CONFIGURACOES_PADRAO)).rejects.toThrow(
+    await expect(mudarTipo(repo, 'inexistente', 'avaliacao', '2026-11-10', CONFIGURACOES_PADRAO, AGORA)).rejects.toThrow(
       'Paciente não encontrado',
     );
   });

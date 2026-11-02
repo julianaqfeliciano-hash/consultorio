@@ -107,6 +107,29 @@ export function gerarOcorrencias(e: {
   return novas.sort((a, b) => Date.parse(a.inicio) - Date.parse(b.inicio));
 }
 
+/**
+ * A sessão que ocupa o lugar de `original` num horário novo (remarcação ou reposição): agendada, solta do
+ * horário fixo, do mesmo tipo e da mesma avaliação. Confirmação, observação e valor eram da original e não vêm.
+ */
+export function novaSessaoDeRemarcacao(original: Sessao, novoInicio: string): NovaSessao {
+  return {
+    pacienteId: original.pacienteId,
+    inicio: novoInicio,
+    duracaoMin: original.duracaoMin,
+    tipo: original.tipo,
+    acompanhamentoFamiliar: original.acompanhamentoFamiliar,
+    origem: 'remarcacao',
+    horarioFixoId: null,
+    dataOcorrencia: null,
+    situacao: 'agendada',
+    remarcadaPara: null,
+    avaliacaoId: original.avaliacaoId,
+    confirmada: false,
+    observacao: null,
+    valorCentavos: null,
+  };
+}
+
 /** Ids das sessões agendadas que casam com o filtro (datas no fuso do consultório). */
 export function selecionarAgendadas(
   sessoes: Sessao[],

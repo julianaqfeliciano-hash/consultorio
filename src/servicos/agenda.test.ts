@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { criarRepositorioMemoria, type SementeMemoria } from '../dados/memoria';
 import type { Repositorio } from '../dados/repositorio';
-import type { NovaSessao } from '../dominio/tipos';
+import type { NovaSessao, Pagamento } from '../dominio/tipos';
 import { avaliacaoExemplo, horarioExemplo, pacienteExemplo, sessaoExemplo } from '../testes/fabricas';
 import {
   bloquearPeriodo,
@@ -10,6 +10,7 @@ import {
   marcarSituacao,
   remarcar,
 } from './agenda';
+import { ErroCobranca } from './cobranca';
 
 // Base: a Ana (ativa, psicoterapia) com horário fixo na terça 14:00; novembro de 2026
 // tem terças nos dias 3, 10, 17 e 24 (14:00 em São Paulo = 17:00 UTC).
@@ -144,6 +145,197 @@ describe('marcarSituacao', () => {
     const repo = novoRepo({ pacientes: [pacienteExemplo({ dataEntrada: null })], sessoes: [noite] });
     await marcarSituacao(repo, noite, 'compareceu');
     expect((await repo.obterFicha('p1'))?.paciente.dataEntrada).toBe('2026-11-03');
+  });
+});
+
+describe('marcarSituacao e o valor da sessão', () => {
+  const MENSAGEM_PAGA = 'Esta sessão já foi paga. Para mudar a situação, remova o pagamento na ficha do paciente.';
+
+  const pagamentoDe = (sessaoIds: string[], sobre: Partial<Pagamento> = {}): Pagamento => ({
+    id: 'pg1',
+    pacienteId: 'p1',
+    data: '2026-11-03',
+    valorCentavos: 20000,
+    forma: 'pix',
+    observacao: null,
+    referencia: 'sessoes',
+    mesReferencia: null,
+    avaliacaoId: null,
+    sessaoIds,
+    ...sobre,
+  });
+
+  const valorGravado = async (repo: Repositorio, id = 's1') =>
+    (await repo.listarSessoesDoPaciente('p1')).find((s) => s.id === id)?.valorCentavos;
+
+  it('compareceu numa psicoterapia de R$ 200,00 grava 20000', async () => {
+    const s = sessaoExemplo();
+    const repo = novoRepo({ sessoes: [s] });
+
+    const marcada = await marcarSituacao(repo, s, 'compareceu');
+
+    expect(marcada.valorCentavos).toBe(20000);
+    expect(await valorGravado(repo)).toBe(20000);
+  });
+
+  it('falta sem aviso na psicoterapia também grava o valor; falta com aviso e cancelada não', async () => {
+    const repo = novoRepo({ sessoes: [sessaoExemplo({ id: 'a' }), sessaoExemplo({ id: 'b' }), sessaoExemplo({ id: 'c' })] });
+    const [a, b, c] = await repo.listarSessoesDoPaciente('p1');
+
+    await marcarSituacao(repo, a, 'falta_sem_aviso');
+    await marcarSituacao(repo, b, 'falta_com_aviso');
+    await marcarSituacao(repo, c, 'cancelada');
+
+    expect(await valorGravado(repo, 'a')).toBe(20000);
+    expect(await valorGravado(repo, 'b')).toBeNull();
+    expect(await valorGravado(repo, 'c')).toBeNull();
+  });
+
+  it('na avaliação, o comparecimento grava null e a falta sem aviso grava o valor da sessão', async () => {
+    const paciente = pacienteExemplo({ tipo: 'avaliacao', valorSessaoCentavos: 16000 });
+    const repo = novoRepo({
+      pacientes: [paciente],
+      avaliacoes: [avaliacaoExemplo()],
+      sessoes: [
+        sessaoExemplo({ id: 'a', tipo: 'avaliacao', avaliacaoId: 'av1' }),
+        sessaoExemplo({ id: 'b', tipo: 'avaliacao', avaliacaoId: 'av1' }),
+      ],
+    });
+    const [a, b] = await repo.listarSessoesDoPaciente('p1');
+
+    const compareceu = await marcarSituacao(repo, a, 'compareceu');
+    const faltou = await marcarSituacao(repo, b, 'falta_sem_aviso');
+
+    expect(compareceu.valorCentavos).toBeNull();
+    expect(faltou.valorCentavos).toBe(16000);
+    expect(await valorGravado(repo, 'a')).toBeNull();
+    expect(await valorGravado(repo, 'b')).toBe(16000);
+  });
+
+  it('o valor segue o tipo da sessão, não o do paciente de hoje', async () => {
+    // O paciente virou psicoterapia, mas esta sessão é do tempo da avaliação.
+    const repo = novoRepo({
+      avaliacoes: [avaliacaoExemplo()],
+      sessoes: [sessaoExemplo({ tipo: 'avaliacao', avaliacaoId: 'av1' })],
+    });
+    const [s] = await repo.listarSessoesDoPaciente('p1');
+    expect((await marcarSituacao(repo, s, 'compareceu')).valorCentavos).toBeNull();
+  });
+
+  it('voltar para Agendada grava null', async () => {
+    const s = sessaoExemplo({ situacao: 'compareceu', valorCentavos: 20000 });
+    const repo = novoRepo({ sessoes: [s] });
+
+    const marcada = await marcarSituacao(repo, s, 'agendada');
+
+    expect(marcada).toMatchObject({ situacao: 'agendada', valorCentavos: null });
+    expect(await valorGravado(repo)).toBeNull();
+  });
+
+  it('reajuste não muda o passado: a sessão já marcada continua com o valor de então (Review Focus 2)', async () => {
+    const repo = novoRepo({ sessoes: [sessaoExemplo({ id: 'a' }), sessaoExemplo({ id: 'b' })] });
+    const [a, b] = await repo.listarSessoesDoPaciente('p1');
+    await marcarSituacao(repo, a, 'compareceu');
+
+    const ficha = await repo.obterFicha('p1');
+    await repo.salvarPaciente({ ...ficha!.paciente, valorSessaoCentavos: 22000 });
+    await marcarSituacao(repo, b, 'compareceu');
+
+    expect(await valorGravado(repo, 'a')).toBe(20000);
+    expect(await valorGravado(repo, 'b')).toBe(22000);
+  });
+
+  it('mudar entre duas situações cobradas mantém o valor que a sessão já guardava', async () => {
+    const s = sessaoExemplo();
+    const repo = novoRepo({ sessoes: [s] });
+    const marcada = await marcarSituacao(repo, s, 'compareceu');
+    const ficha = await repo.obterFicha('p1');
+    await repo.salvarPaciente({ ...ficha!.paciente, valorSessaoCentavos: 22000 });
+
+    const faltou = await marcarSituacao(repo, marcada, 'falta_sem_aviso');
+
+    expect(faltou).toMatchObject({ situacao: 'falta_sem_aviso', valorCentavos: 20000 });
+    expect(await valorGravado(repo)).toBe(20000);
+  });
+
+  it('sessão paga: falta com aviso rejeita com a mensagem exata e nada é gravado (Review Focus 1)', async () => {
+    const s = sessaoExemplo({ situacao: 'compareceu', valorCentavos: 20000 });
+    const repo = novoRepo({
+      pacientes: [pacienteExemplo({ dataEntrada: null })],
+      sessoes: [s],
+      pagamentos: [pagamentoDe(['s1'])],
+    });
+
+    const erro = await marcarSituacao(repo, s, 'falta_com_aviso').catch((e: unknown) => e);
+
+    expect(erro).toBeInstanceOf(ErroCobranca);
+    expect((erro as Error).message).toBe(MENSAGEM_PAGA);
+    const [salva] = await repo.listarSessoesDoPaciente('p1');
+    expect(salva).toMatchObject({ situacao: 'compareceu', valorCentavos: 20000 });
+    expect(await repo.listarPagamentos({ pacienteId: 'p1' })).toHaveLength(1);
+  });
+
+  it('sessão paga: cancelada e voltar para Agendada também rejeitam', async () => {
+    const s = sessaoExemplo({ situacao: 'compareceu', valorCentavos: 20000 });
+    const repo = novoRepo({ sessoes: [s], pagamentos: [pagamentoDe(['s1'])] });
+    await expect(marcarSituacao(repo, s, 'cancelada')).rejects.toThrow(MENSAGEM_PAGA);
+    await expect(marcarSituacao(repo, s, 'agendada')).rejects.toThrow(MENSAGEM_PAGA);
+    expect(await valorGravado(repo)).toBe(20000);
+  });
+
+  it('sessão paga: a recusa vem antes de qualquer gravação', async () => {
+    const s = sessaoExemplo({ situacao: 'compareceu', valorCentavos: 20000 });
+    const repo = novoRepo({ sessoes: [s], pagamentos: [pagamentoDe(['s1'])] });
+    const atualizarSessao = vi.fn(repo.atualizarSessao);
+    const salvarPaciente = vi.fn(repo.salvarPaciente);
+
+    await expect(marcarSituacao({ ...repo, atualizarSessao, salvarPaciente }, s, 'falta_com_aviso')).rejects.toBeInstanceOf(
+      ErroCobranca,
+    );
+
+    expect(atualizarSessao).not.toHaveBeenCalled();
+    expect(salvarPaciente).not.toHaveBeenCalled();
+  });
+
+  it('sessão paga: falta sem aviso é aceita e o pagamento e o valor continuam', async () => {
+    const s = sessaoExemplo({ situacao: 'compareceu', valorCentavos: 20000 });
+    const repo = novoRepo({ sessoes: [s], pagamentos: [pagamentoDe(['s1'])] });
+
+    const marcada = await marcarSituacao(repo, s, 'falta_sem_aviso');
+
+    expect(marcada).toMatchObject({ situacao: 'falta_sem_aviso', valorCentavos: 20000 });
+    expect(await repo.listarPagamentos({ pacienteId: 'p1' })).toEqual([pagamentoDe(['s1'])]);
+  });
+
+  it('só o pagamento desta sessão a protege: a outra, sem pagamento, pode ficar sem valor', async () => {
+    const paga = sessaoExemplo({ id: 'paga', situacao: 'compareceu', valorCentavos: 20000 });
+    const aberta = sessaoExemplo({ id: 'aberta', situacao: 'compareceu', valorCentavos: 20000 });
+    const repo = novoRepo({ sessoes: [paga, aberta], pagamentos: [pagamentoDe(['paga'])] });
+
+    const marcada = await marcarSituacao(repo, aberta, 'falta_com_aviso');
+
+    expect(marcada.valorCentavos).toBeNull();
+  });
+
+  it('pagamento do mês não prende a sessão: ela pode mudar e o aviso de diferença aparece depois', async () => {
+    const s = sessaoExemplo({ inicio: '2026-10-06T17:00:00.000Z', situacao: 'compareceu', valorCentavos: 20000 });
+    const mes = pagamentoDe([], { referencia: 'mes', mesReferencia: '2026-10-01' });
+    const repo = novoRepo({
+      pacientes: [pacienteExemplo({ formaCobranca: 'mensal' })],
+      sessoes: [s],
+      pagamentos: [mes],
+    });
+
+    const marcada = await marcarSituacao(repo, s, 'falta_com_aviso');
+
+    expect(marcada).toMatchObject({ situacao: 'falta_com_aviso', valorCentavos: null });
+    expect(await repo.listarPagamentos({ pacienteId: 'p1' })).toEqual([mes]);
+  });
+
+  it('rejeita sessão de paciente que não existe, sem gravar', async () => {
+    const orfa = sessaoExemplo({ pacienteId: 'fantasma' });
+    const repo = novoRepo();
+    await expect(marcarSituacao(repo, orfa, 'compareceu')).rejects.toThrow('Paciente não encontrado');
   });
 });
 

@@ -1,7 +1,9 @@
 import type { Repositorio } from '../dados/repositorio';
 import type { Bloqueio, DataISO, Id, Sessao, SituacaoSessao } from '../dominio/tipos';
-import { chaveOcorrencia, gerarOcorrencias, selecionarAgendadas } from '../regras/agenda';
+import { chaveOcorrencia, gerarOcorrencias, novaSessaoDeRemarcacao, selecionarAgendadas } from '../regras/agenda';
+import { valorCobradoDaSessao } from '../regras/cobranca';
 import { dataLocal, inicioDaSemana, somarDias } from '../regras/datas';
+import { ErroCobranca } from './cobranca';
 import { exigirFicha } from './comum';
 
 /**
@@ -27,18 +29,36 @@ export async function garantirAgenda(repo: Repositorio, hoje: DataISO, semanas: 
   return repo.inserirOcorrencias(gerarOcorrencias({ horarios, bloqueios, existentes, de: hoje, ate }));
 }
 
-/** Registra o que aconteceu na sessão. O primeiro comparecimento define a data de entrada do paciente. */
+/**
+ * Registra o que aconteceu na sessão e guarda o que ela custa (`valorCentavos`, ou `null` se não é cobrada).
+ * O valor é o do paciente no dia em que a sessão passa a ser cobrada: reajustes não mexem em sessões já marcadas,
+ * e mudar entre duas situações cobradas mantém o valor que ela já tinha.
+ * O primeiro comparecimento define a data de entrada do paciente.
+ *
+ * Sessão já quitada por um pagamento de sessões não pode deixar de ser cobrada: o pagamento ficaria apontando
+ * para uma sessão sem valor. A recusa vem antes de qualquer gravação.
+ */
 export async function marcarSituacao(
   repo: Repositorio,
   sessao: Sessao,
   situacao: Exclude<SituacaoSessao, 'remarcada'>,
 ): Promise<Sessao> {
-  const atualizada = await repo.atualizarSessao(sessao.id, { situacao });
-  if (situacao === 'compareceu') {
-    const { paciente } = await exigirFicha(repo, sessao.pacienteId);
-    if (paciente.dataEntrada === null) {
-      await repo.salvarPaciente({ ...paciente, dataEntrada: dataLocal(sessao.inicio) });
+  const { paciente } = await exigirFicha(repo, sessao.pacienteId);
+  const valorNovo = valorCobradoDaSessao({ tipo: sessao.tipo, situacao }, paciente.valorSessaoCentavos);
+  if (valorNovo === null) {
+    const pagamentos = await repo.listarPagamentos({ pacienteId: sessao.pacienteId });
+    const paga = pagamentos.some((p) => p.referencia === 'sessoes' && p.sessaoIds.includes(sessao.id));
+    if (paga) {
+      throw new ErroCobranca(
+        'Esta sessão já foi paga. Para mudar a situação, remova o pagamento na ficha do paciente.',
+      );
     }
+  }
+  const valorCentavos = valorNovo === null ? null : (sessao.valorCentavos ?? valorNovo);
+
+  const atualizada = await repo.atualizarSessao(sessao.id, { situacao, valorCentavos });
+  if (situacao === 'compareceu' && paciente.dataEntrada === null) {
+    await repo.salvarPaciente({ ...paciente, dataEntrada: dataLocal(sessao.inicio) });
   }
   return atualizada;
 }
@@ -48,22 +68,7 @@ export async function marcarSituacao(
  * A original continua presa à sua ocorrência do horário fixo, então a agenda não a recria.
  */
 export async function remarcar(repo: Repositorio, sessao: Sessao, novoInicio: string): Promise<Sessao> {
-  const nova = await repo.criarSessao({
-    pacienteId: sessao.pacienteId,
-    inicio: novoInicio,
-    duracaoMin: sessao.duracaoMin,
-    tipo: sessao.tipo,
-    acompanhamentoFamiliar: sessao.acompanhamentoFamiliar,
-    origem: 'remarcacao',
-    horarioFixoId: null,
-    dataOcorrencia: null,
-    situacao: 'agendada',
-    remarcadaPara: null,
-    avaliacaoId: sessao.avaliacaoId,
-    confirmada: false,
-    observacao: null,
-    valorCentavos: null,
-  });
+  const nova = await repo.criarSessao(novaSessaoDeRemarcacao(sessao, novoInicio));
   await repo.atualizarSessao(sessao.id, { situacao: 'remarcada', remarcadaPara: nova.id });
   return nova;
 }

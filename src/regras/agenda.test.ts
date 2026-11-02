@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { sessaoExemplo } from '../testes/fabricas';
 import type {
   Avaliacao,
   Bloqueio,
@@ -11,6 +12,7 @@ import {
   ehCobravel,
   estaBloqueado,
   gerarOcorrencias,
+  novaSessaoDeRemarcacao,
   numeroNaAvaliacao,
   planejarMudancaDeHorario,
   selecionarAgendadas,
@@ -181,6 +183,43 @@ describe('ehCobravel', () => {
   it('cobrança por situação', () => {
     expect(['compareceu', 'falta_sem_aviso'].every((s) => ehCobravel(s as SituacaoSessao))).toBe(true);
     expect(['agendada', 'falta_com_aviso', 'cancelada', 'remarcada'].some((s) => ehCobravel(s as SituacaoSessao))).toBe(false);
+  });
+});
+
+describe('novaSessaoDeRemarcacao', () => {
+  it('é uma sessão agendada no horário novo, solta do horário fixo e sem o que era da original', () => {
+    const original = sessaoExemplo({
+      id: 'orig',
+      origem: 'fixa',
+      horarioFixoId: 'hf1',
+      dataOcorrencia: '2026-11-03',
+      situacao: 'falta_sem_aviso',
+      remarcadaPara: null,
+      confirmada: true,
+      observacao: 'Trazer o desenho',
+      valorCentavos: 16000,
+      tipo: 'avaliacao',
+      avaliacaoId: 'av1',
+      acompanhamentoFamiliar: true,
+      duracaoMin: 40,
+    });
+
+    expect(novaSessaoDeRemarcacao(original, '2026-11-06T13:00:00.000Z')).toEqual({
+      pacienteId: 'p1',
+      inicio: '2026-11-06T13:00:00.000Z',
+      duracaoMin: 40,
+      tipo: 'avaliacao',
+      acompanhamentoFamiliar: true,
+      origem: 'remarcacao',
+      horarioFixoId: null,
+      dataOcorrencia: null,
+      situacao: 'agendada',
+      remarcadaPara: null,
+      avaliacaoId: 'av1',
+      confirmada: false,
+      observacao: null,
+      valorCentavos: null,
+    });
   });
 });
 

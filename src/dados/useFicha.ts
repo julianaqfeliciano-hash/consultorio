@@ -121,7 +121,10 @@ export function useMudarTipo(pacienteId: Id) {
   const { config } = useConfiguracoes();
   const atualizar = useAtualizarFicha(pacienteId);
   return useMutation({
-    mutationFn: (novoTipo: TipoAtendimento) => mudarTipo(repositorio, pacienteId, novoTipo, hojeISO(), config),
+    mutationFn: (novoTipo: TipoAtendimento) => {
+      const agora = new Date();
+      return mudarTipo(repositorio, pacienteId, novoTipo, hojeISO(agora), config, agora);
+    },
     onSettled: atualizar,
   });
 }

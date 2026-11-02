@@ -22,7 +22,7 @@ function novaAvaliacao(pacienteId: Id, inicio: DataISO, config: Configuracoes): 
     fim: null,
     sessoesPrevistas: config.sessoesAvaliacaoPadrao,
     etapas: ETAPAS_AVALIACAO_PADRAO.map((nome) => ({ nome, feita: false })),
-    valorPrevistoCentavos: 0,
+    valorPrevistoCentavos: config.valorAvaliacaoPadraoCentavos,
     descontoTipo: 'nenhum',
     descontoValor: 0,
   };
@@ -95,8 +95,13 @@ export async function mudarHorarioFixo(
 }
 
 /**
- * Muda o tipo de atendimento. As sessões de hoje em diante que ainda estão agendadas
- * passam para o tipo novo; o que já aconteceu (ou ficou para trás) mantém o tipo de então.
+ * Muda o tipo de atendimento e concilia a agenda. As sessões que ainda vão acontecer (agendadas, com início
+ * depois de `agora`; fixas, avulsas e remarcações) passam para o tipo novo no lugar, sem apagar nada: a
+ * observação, a confirmação e o vínculo com o horário fixo ficam como estão. O que já aconteceu (ou ficou para
+ * trás) mantém o tipo de então. Depois, a agenda é completada para as ocorrências novas já virem com o tipo novo.
+ *
+ * Repetir a chamada com o tipo que o paciente já tem não cria outra avaliação nem regrava o paciente, mas
+ * concilia de novo: é o que conserta uma mudança que parou no meio.
  */
 export async function mudarTipo(
   repo: Repositorio,
@@ -104,24 +109,28 @@ export async function mudarTipo(
   novoTipo: TipoAtendimento,
   hoje: DataISO,
   config: Configuracoes,
+  agora: Date = new Date(),
 ): Promise<void> {
-  const { paciente } = await exigirFicha(repo, pacienteId);
-  if (paciente.tipo === novoTipo) return;
+  const { paciente, avaliacao } = await exigirFicha(repo, pacienteId);
 
-  // A avaliação precisa existir antes de a agenda ser regenerada: é dela que as sessões novas herdam o vínculo.
-  const avaliacaoId =
-    novoTipo === 'avaliacao' ? (await repo.salvarAvaliacao(novaAvaliacao(pacienteId, hoje, config))).id : null;
-  await repo.salvarPaciente({ ...paciente, tipo: novoTipo });
+  // A avaliação precisa existir antes de as sessões apontarem para ela.
+  let avaliacaoId: Id | null = null;
+  if (novoTipo === 'avaliacao') {
+    avaliacaoId =
+      paciente.tipo === novoTipo
+        ? (avaliacao?.id ?? null)
+        : (await repo.salvarAvaliacao(novaAvaliacao(pacienteId, hoje, config))).id;
+  }
+  if (paciente.tipo !== novoTipo) await repo.salvarPaciente({ ...paciente, tipo: novoTipo });
 
   const sessoes = await repo.listarSessoesDoPaciente(pacienteId);
-  // As fixas agendadas são regeneradas logo abaixo, já com o tipo novo.
-  await repo.removerSessoes(selecionarAgendadas(sessoes, { pacienteId, de: hoje, somenteFixas: true }));
-  // Avulsas e remarcações foram marcadas à mão para um horário específico: ficam onde estão e só mudam de tipo.
-  const marcadasAMao = selecionarAgendadas(
-    sessoes.filter((s) => s.origem !== 'fixa'),
-    { pacienteId, de: hoje },
+  const aConciliar = sessoes.filter(
+    (s) =>
+      s.situacao === 'agendada' &&
+      Date.parse(s.inicio) > agora.getTime() &&
+      (s.tipo !== novoTipo || s.avaliacaoId !== avaliacaoId),
   );
-  await Promise.all(marcadasAMao.map((id) => repo.atualizarSessao(id, { tipo: novoTipo, avaliacaoId })));
+  await Promise.all(aConciliar.map((s) => repo.atualizarSessao(s.id, { tipo: novoTipo, avaliacaoId })));
 
   await garantirAgenda(repo, hoje, config.semanasGeradas);
 }
