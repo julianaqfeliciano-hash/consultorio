@@ -5,7 +5,8 @@ import { Botao } from '../../componentes/Botao';
 import { Campo } from '../../componentes/Campo';
 import { useSalvarConfiguracoes } from '../../dados/useConfiguracoes';
 import type { Configuracoes } from '../../dominio/tipos';
-import { DURACAO_MAXIMA_MIN, SESSOES_PREVISTAS_MAXIMAS } from '../../regras/formularios';
+import { centavosParaCampo } from '../../regras/dinheiro';
+import { DURACAO_MAXIMA_MIN, SESSOES_PREVISTAS_MAXIMAS, validarValorPadraoDaAvaliacao } from '../../regras/formularios';
 
 type ChaveTexto =
   | 'nomeCompleto'
@@ -19,7 +20,7 @@ type ChaveTexto =
   | 'cidade'
   | 'instagram';
 type ChaveNumero = 'duracaoPadraoMin' | 'sessoesAvaliacaoPadrao' | 'semanasGeradas';
-type Valores = Record<ChaveTexto | ChaveNumero | 'mensagemWhatsapp', string>;
+type Valores = Record<ChaveTexto | ChaveNumero | 'mensagemWhatsapp' | 'valorAvaliacaoPadrao', string>;
 type Avisos = Partial<Record<keyof Valores, string>>;
 
 /** Mais que isso enche a agenda de sessões que ninguém vai olhar (e o banco devolve no máximo 1000 linhas por consulta). */
@@ -75,6 +76,7 @@ function paraValores(c: Configuracoes): Valores {
     duracaoPadraoMin: String(c.duracaoPadraoMin),
     sessoesAvaliacaoPadrao: String(c.sessoesAvaliacaoPadrao),
     semanasGeradas: String(c.semanasGeradas),
+    valorAvaliacaoPadrao: centavosParaCampo(c.valorAvaliacaoPadraoCentavos),
   };
 }
 
@@ -92,8 +94,8 @@ interface Props {
 }
 
 /**
- * Os campos de "Seus dados" e "Agenda". Só grava com os números inteiros dentro dos limites
- * e com o nome completo e a mensagem do WhatsApp preenchidos.
+ * Os campos de "Seus dados", "Agenda" e "Cobrança". Só grava com os números inteiros dentro dos limites,
+ * o valor padrão da avaliação entre R$ 0,00 e R$ 100.000,00 e o nome completo e a mensagem do WhatsApp preenchidos.
  */
 export function FormularioConfiguracoes({ config }: Props) {
   const [valores, setValores] = useState<Valores>(() => paraValores(config));
@@ -116,26 +118,42 @@ export function FormularioConfiguracoes({ config }: Props) {
       const aviso = avisoDoNumero(valores[chave], maximo);
       if (aviso) novosAvisos[chave] = aviso;
     }
+    const valorPadrao = validarValorPadraoDaAvaliacao(valores.valorAvaliacaoPadrao);
+    if (valorPadrao.dados === null) novosAvisos.valorAvaliacaoPadrao = valorPadrao.erros.valor;
     setAvisos(novosAvisos);
-    if (Object.keys(novosAvisos).length > 0) return;
+    if (valorPadrao.dados === null || Object.keys(novosAvisos).length > 0) return;
+    const valorAvaliacaoPadraoCentavos = valorPadrao.dados;
+    const digitado = valores.valorAvaliacaoPadrao;
 
-    salvar.mutate({
-      ...config,
-      nomeCompleto: valores.nomeCompleto.trim(),
-      nomeExibicao: valores.nomeExibicao.trim(),
-      titulo: valores.titulo.trim(),
-      crp: valores.crp.trim(),
-      cpf: valores.cpf.trim(),
-      telefone: valores.telefone.trim(),
-      email: valores.email.trim(),
-      endereco: valores.endereco.trim(),
-      cidade: valores.cidade.trim(),
-      instagram: valores.instagram.trim(),
-      mensagemWhatsapp: valores.mensagemWhatsapp.trim(),
-      duracaoPadraoMin: Number(valores.duracaoPadraoMin),
-      sessoesAvaliacaoPadrao: Number(valores.sessoesAvaliacaoPadrao),
-      semanasGeradas: Number(valores.semanasGeradas),
-    });
+    salvar.mutate(
+      {
+        ...config,
+        nomeCompleto: valores.nomeCompleto.trim(),
+        nomeExibicao: valores.nomeExibicao.trim(),
+        titulo: valores.titulo.trim(),
+        crp: valores.crp.trim(),
+        cpf: valores.cpf.trim(),
+        telefone: valores.telefone.trim(),
+        email: valores.email.trim(),
+        endereco: valores.endereco.trim(),
+        cidade: valores.cidade.trim(),
+        instagram: valores.instagram.trim(),
+        mensagemWhatsapp: valores.mensagemWhatsapp.trim(),
+        duracaoPadraoMin: Number(valores.duracaoPadraoMin),
+        sessoesAvaliacaoPadrao: Number(valores.sessoesAvaliacaoPadrao),
+        semanasGeradas: Number(valores.semanasGeradas),
+        valorAvaliacaoPadraoCentavos,
+      },
+      {
+        // Depois de salvar, o valor aparece como ficou gravado ('1800' vira '1800,00'), se ela não mexeu nele nesse meio-tempo.
+        onSuccess: () =>
+          setValores((v) =>
+            v.valorAvaliacaoPadrao === digitado
+              ? { ...v, valorAvaliacaoPadrao: centavosParaCampo(valorAvaliacaoPadraoCentavos) }
+              : v,
+          ),
+      },
+    );
   }
 
   return (
@@ -189,6 +207,19 @@ export function FormularioConfiguracoes({ config }: Props) {
           value={valores.mensagemWhatsapp}
           onChange={(e) => alterar('mensagemWhatsapp', e.target.value)}
           erro={avisos.mensagemWhatsapp}
+        />
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-4">
+        <legend className="mb-2 font-titulo text-2xl">Cobrança</legend>
+        <Campo
+          rotulo="Valor padrão da avaliação"
+          ajuda="Em reais, por exemplo 1800 ou 1800,50. É o valor previsto de uma avaliação nova; use 0 se ainda não tem um valor padrão."
+          inputMode="decimal"
+          autoComplete="off"
+          value={valores.valorAvaliacaoPadrao}
+          onChange={(e) => alterar('valorAvaliacaoPadrao', e.target.value)}
+          erro={avisos.valorAvaliacaoPadrao}
         />
       </fieldset>
 

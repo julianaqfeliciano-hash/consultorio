@@ -8,6 +8,9 @@ import {
   validarHorario,
   validarResponsavel,
   validarSessoesPrevistas,
+  validarValorPadraoDaAvaliacao,
+  validarValoresDaAvaliacao,
+  valoresDaAvaliacao,
   valoresDeCobranca,
   valoresDeDados,
   valoresDeResponsavel,
@@ -171,5 +174,113 @@ describe('validarEtapa', () => {
     expect(validarEtapa('  ', existentes).erros).toEqual({ nome: 'Informe o nome da etapa.' });
     expect(validarEtapa('devolutiva', existentes).erros).toEqual({ nome: 'Essa etapa já existe.' });
     expect(validarEtapa('DEVOLÚTIVA', existentes).erros).toEqual({ nome: 'Essa etapa já existe.' });
+  });
+});
+
+describe('validarValorPadraoDaAvaliacao', () => {
+  it('lê o valor em reais e devolve centavos; aceita zero e o máximo de R$ 100.000,00', () => {
+    expect(validarValorPadraoDaAvaliacao('1800').dados).toBe(180000);
+    expect(validarValorPadraoDaAvaliacao('R$ 1.800,50').dados).toBe(180050);
+    expect(validarValorPadraoDaAvaliacao('0').dados).toBe(0);
+    expect(validarValorPadraoDaAvaliacao('100000').dados).toBe(10000000);
+    expect(validarValorPadraoDaAvaliacao('100.000,00').dados).toBe(10000000);
+  });
+
+  it('em branco vale zero (nenhum valor padrão)', () => {
+    expect(validarValorPadraoDaAvaliacao('  ').dados).toBe(0);
+  });
+
+  it('recusa o que não é valor em reais', () => {
+    for (const invalido of ['abc', '-5', '12,345', '1,2,3']) {
+      expect(validarValorPadraoDaAvaliacao(invalido)).toEqual({
+        erros: { valor: 'Informe um valor válido, como 1800 ou 1800,50.' },
+        dados: null,
+      });
+    }
+  });
+
+  it('recusa mais que R$ 100.000,00', () => {
+    for (const alto of ['100000,01', '100.001', '250000']) {
+      expect(validarValorPadraoDaAvaliacao(alto)).toEqual({
+        erros: { valor: 'Use um valor de até R$ 100.000,00.' },
+        dados: null,
+      });
+    }
+  });
+});
+
+describe('valoresDaAvaliacao', () => {
+  it('escreve os valores como se digitam', () => {
+    expect(valoresDaAvaliacao({ valorPrevistoCentavos: 180000, descontoTipo: 'percentual', descontoValor: 10 })).toEqual({
+      valorPrevisto: '1800,00',
+      descontoTipo: 'percentual',
+      descontoValor: '10',
+    });
+    expect(valoresDaAvaliacao({ valorPrevistoCentavos: 180050, descontoTipo: 'reais', descontoValor: 15050 })).toEqual({
+      valorPrevisto: '1800,50',
+      descontoTipo: 'reais',
+      descontoValor: '150,50',
+    });
+    expect(valoresDaAvaliacao({ valorPrevistoCentavos: 0, descontoTipo: 'nenhum', descontoValor: 0 })).toEqual({
+      valorPrevisto: '0,00',
+      descontoTipo: 'nenhum',
+      descontoValor: '',
+    });
+  });
+});
+
+describe('validarValoresDaAvaliacao', () => {
+  const base = { valorPrevisto: '1800', descontoTipo: 'nenhum', descontoValor: '' } as const;
+
+  it('sem desconto: só o valor previsto; o que sobrou no campo do desconto é ignorado', () => {
+    expect(validarValoresDaAvaliacao(base).dados).toEqual({ valorPrevistoCentavos: 180000, descontoTipo: 'nenhum', descontoValor: 0 });
+    expect(validarValoresDaAvaliacao({ ...base, descontoValor: '999999' }).dados).toEqual({
+      valorPrevistoCentavos: 180000,
+      descontoTipo: 'nenhum',
+      descontoValor: 0,
+    });
+  });
+
+  it('desconto em porcentagem: inteiro de 0 a 100', () => {
+    const com = (descontoValor: string) => validarValoresDaAvaliacao({ ...base, descontoTipo: 'percentual', descontoValor });
+    expect(com('15').dados).toEqual({ valorPrevistoCentavos: 180000, descontoTipo: 'percentual', descontoValor: 15 });
+    expect(com('0').dados?.descontoValor).toBe(0);
+    expect(com('100').dados?.descontoValor).toBe(100);
+    expect(com('').dados?.descontoValor).toBe(0);
+    for (const invalido of ['101', '120', '-1', '12,5', '12.5', 'abc']) {
+      expect(com(invalido)).toEqual({ erros: { descontoValor: 'Use uma porcentagem de 0 a 100.' }, dados: null });
+    }
+  });
+
+  it('desconto em reais: lido em centavos e não pode passar do valor previsto', () => {
+    const com = (descontoValor: string, valorPrevisto = '1800') =>
+      validarValoresDaAvaliacao({ valorPrevisto, descontoTipo: 'reais', descontoValor });
+    expect(com('150,50').dados).toEqual({ valorPrevistoCentavos: 180000, descontoTipo: 'reais', descontoValor: 15050 });
+    expect(com('1800').dados?.descontoValor).toBe(180000);
+    expect(com('2000')).toEqual({ erros: { descontoValor: 'O desconto passa do valor previsto.' }, dados: null });
+    expect(com('1800,01').erros).toEqual({ descontoValor: 'O desconto passa do valor previsto.' });
+    expect(com('abc').erros).toEqual({ descontoValor: 'Informe um valor válido, como 150 ou 150,50.' });
+  });
+
+  it('valor previsto: em branco vale zero; recusa o que não é valor e o que passa de R$ 100.000,00', () => {
+    expect(validarValoresDaAvaliacao({ ...base, valorPrevisto: ' ' }).dados?.valorPrevistoCentavos).toBe(0);
+    expect(validarValoresDaAvaliacao({ ...base, valorPrevisto: 'abc' }).erros).toEqual({
+      valorPrevisto: 'Informe um valor válido, como 1800 ou 1800,50.',
+    });
+    expect(validarValoresDaAvaliacao({ ...base, valorPrevisto: '100000,01' }).erros).toEqual({
+      valorPrevisto: 'Use um valor de até R$ 100.000,00.',
+    });
+  });
+
+  it('aponta os dois campos de uma vez', () => {
+    expect(validarValoresDaAvaliacao({ valorPrevisto: 'abc', descontoTipo: 'percentual', descontoValor: '120' }).erros).toEqual({
+      valorPrevisto: 'Informe um valor válido, como 1800 ou 1800,50.',
+      descontoValor: 'Use uma porcentagem de 0 a 100.',
+    });
+  });
+
+  it('o que se escreve com valoresDaAvaliacao volta igual', () => {
+    const dados = { valorPrevistoCentavos: 180050, descontoTipo: 'reais', descontoValor: 15050 } as const;
+    expect(validarValoresDaAvaliacao(valoresDaAvaliacao(dados)).dados).toEqual(dados);
   });
 });

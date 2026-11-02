@@ -54,6 +54,74 @@ describe('TelaConfiguracoes', () => {
     expect(within(agenda).getByLabelText('Mensagem do WhatsApp')).toBeInTheDocument();
   });
 
+  it('tem o grupo "Cobrança" com o valor padrão da avaliação, que começa em zero', async () => {
+    renderComRotas(CAMINHO);
+
+    const cobranca = await screen.findByRole('group', { name: 'Cobrança' });
+    const campo = within(cobranca).getByLabelText('Valor padrão da avaliação');
+    expect(campo).toHaveValue('0,00');
+    expect(campo).toHaveAccessibleDescription(expect.stringContaining('avaliação nova'));
+  });
+
+  it('1800 no valor padrão da avaliação grava 180000 centavos e mostra o valor como ficou gravado', async () => {
+    const { repositorio } = renderComRotas(CAMINHO);
+    const usuaria = await trocarValor('Valor padrão da avaliação', '1800');
+
+    await usuaria.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    expect(await screen.findByText('Configurações salvas.')).toBeInTheDocument();
+    expect((await repositorio.obterConfiguracoes())?.valorAvaliacaoPadraoCentavos).toBe(180000);
+    await waitFor(() => expect(screen.getByLabelText('Valor padrão da avaliação')).toHaveValue('1800,00'));
+  });
+
+  it('mostra o valor padrão já gravado e o conserva ao salvar outro campo', async () => {
+    const gravadas = { ...CONFIGURACOES_PADRAO, valorAvaliacaoPadraoCentavos: 180050 };
+    const { repositorio } = renderComRotas(CAMINHO, { repositorio: criarRepositorioMemoria({ configuracoes: gravadas }) });
+    expect(await screen.findByLabelText('Valor padrão da avaliação')).toHaveValue('1800,50');
+    const usuaria = await trocarValor('Cidade', 'Fortaleza');
+
+    await usuaria.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    expect(await screen.findByText('Configurações salvas.')).toBeInTheDocument();
+    expect(await repositorio.obterConfiguracoes()).toEqual({ ...gravadas, cidade: 'Fortaleza' });
+  });
+
+  it('o valor padrão aceita zero, em branco (vale zero) e o máximo de R$ 100.000,00', async () => {
+    const gravadas = { ...CONFIGURACOES_PADRAO, valorAvaliacaoPadraoCentavos: 180000 };
+    const { repositorio } = renderComRotas(CAMINHO, { repositorio: criarRepositorioMemoria({ configuracoes: gravadas }) });
+
+    for (const [digitado, centavos] of [
+      ['0', 0],
+      ['100000', 10000000],
+      ['', 0],
+    ] as const) {
+      const usuaria = await trocarValor('Valor padrão da avaliação', digitado);
+      await usuaria.click(screen.getByRole('button', { name: 'Salvar' }));
+      await waitFor(async () => expect((await repositorio.obterConfiguracoes())?.valorAvaliacaoPadraoCentavos).toBe(centavos));
+      expect(screen.queryByText(/^Use um valor|^Informe um valor/)).not.toBeInTheDocument();
+    }
+  });
+
+  it.each([
+    ['100000,01', 'Use um valor de até R$ 100.000,00.'],
+    ['250000', 'Use um valor de até R$ 100.000,00.'],
+    ['abc', 'Informe um valor válido, como 1800 ou 1800,50.'],
+    ['-10', 'Informe um valor válido, como 1800 ou 1800,50.'],
+  ])('valor padrão "%s": avisa "%s" e não salva', async (valor, aviso) => {
+    const gravadas = { ...CONFIGURACOES_PADRAO, valorAvaliacaoPadraoCentavos: 180000 };
+    const { repositorio } = renderComRotas(CAMINHO, { repositorio: criarRepositorioMemoria({ configuracoes: gravadas }) });
+    const usuaria = await trocarValor('Valor padrão da avaliação', valor);
+
+    await usuaria.click(screen.getByRole('button', { name: 'Salvar' }));
+
+    const campo = screen.getByLabelText('Valor padrão da avaliação');
+    expect(await screen.findByText(aviso)).toBeInTheDocument();
+    expect(campo).toHaveAccessibleDescription(expect.stringContaining(aviso));
+    expect(campo).toBeInvalid();
+    expect(screen.queryByText('Configurações salvas.')).not.toBeInTheDocument();
+    expect(await repositorio.obterConfiguracoes()).toEqual(gravadas);
+  });
+
   it('mostra as configurações já gravadas, sem sobrescrevê-las', async () => {
     const gravadas = { ...CONFIGURACOES_PADRAO, crp: 'CRP 11/00000', duracaoPadraoMin: 40 };
     const { repositorio } = renderComRotas(CAMINHO, { repositorio: criarRepositorioMemoria({ configuracoes: gravadas }) });

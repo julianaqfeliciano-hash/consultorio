@@ -1,6 +1,6 @@
-import type { DataISO, Etapa, FormaCobranca, Paciente, Responsavel } from '../dominio/tipos';
+import type { Avaliacao, DataISO, Etapa, FormaCobranca, Paciente, Responsavel, TipoDesconto } from '../dominio/tipos';
 import { formatarData } from './datas';
-import { centavosParaCampo, lerReais } from './dinheiro';
+import { centavosParaCampo, formatarReais, lerReais } from './dinheiro';
 import { apenasDigitos, cpfCompleto, normalizarParaBusca, telefoneCompleto } from './texto';
 
 /**
@@ -190,4 +190,72 @@ export function validarEtapa(nome: string, existentes: Etapa[]): Resultado<{ nom
     return { erros: { nome: 'Essa etapa já existe.' }, dados: null };
   }
   return ok({ nome: limpo, feita: false });
+}
+
+/** O maior valor aceito para uma avaliação: R$ 100.000,00 (em centavos). Passar disso é quase sempre um zero a mais. */
+export const VALOR_AVALIACAO_MAXIMO_CENTAVOS = 10_000_000;
+
+const AVISO_VALOR_INVALIDO = 'Informe um valor válido, como 1800 ou 1800,50.';
+// O espaço do formatarReais não quebra linha; no aviso basta o espaço comum.
+const AVISO_VALOR_ALTO = `Use um valor de até ${formatarReais(VALOR_AVALIACAO_MAXIMO_CENTAVOS).replace('\u00a0', ' ')}.`;
+
+/** Valor de uma avaliação digitado em reais: em branco vale zero, e vai de R$ 0,00 a R$ 100.000,00. */
+function lerValorDaAvaliacao(texto: string): { centavos: number } | { aviso: string } {
+  const centavos = texto.trim() === '' ? 0 : lerReais(texto);
+  if (centavos === null) return { aviso: AVISO_VALOR_INVALIDO };
+  if (centavos > VALOR_AVALIACAO_MAXIMO_CENTAVOS) return { aviso: AVISO_VALOR_ALTO };
+  return { centavos };
+}
+
+/** Valor padrão da avaliação (Configurações): o que uma avaliação nova prevê. Aceita zero (nenhum valor padrão). */
+export function validarValorPadraoDaAvaliacao(texto: string): Resultado<{ valor: string }, number> {
+  const lido = lerValorDaAvaliacao(texto);
+  if ('aviso' in lido) return { erros: { valor: lido.aviso }, dados: null };
+  return ok(lido.centavos);
+}
+
+export interface ValoresAvaliacao {
+  /** O valor previsto como digitado ('1800', '1.800,50'). */
+  valorPrevisto: string;
+  descontoTipo: TipoDesconto;
+  /** Reais ('150,50') quando o desconto é em reais; porcentagem ('15') quando é em porcentagem; ignorado sem desconto. */
+  descontoValor: string;
+}
+
+export type DadosValoresAvaliacao = Pick<Avaliacao, 'valorPrevistoCentavos' | 'descontoTipo' | 'descontoValor'>;
+export type ErrosValoresAvaliacao = Partial<Record<'valorPrevisto' | 'descontoValor', string>>;
+
+export function valoresDaAvaliacao(a: DadosValoresAvaliacao): ValoresAvaliacao {
+  const descontoValor = {
+    nenhum: '',
+    reais: centavosParaCampo(a.descontoValor),
+    percentual: String(a.descontoValor),
+  }[a.descontoTipo];
+  return { valorPrevisto: centavosParaCampo(a.valorPrevistoCentavos), descontoTipo: a.descontoTipo, descontoValor };
+}
+
+/**
+ * Valor previsto e desconto da avaliação. O desconto em porcentagem é um inteiro de 0 a 100; em reais não passa
+ * do valor previsto. Em branco vale zero; sem desconto, o que estiver no campo do desconto não conta.
+ */
+export function validarValoresDaAvaliacao(v: ValoresAvaliacao): Resultado<ErrosValoresAvaliacao, DadosValoresAvaliacao> {
+  const erros: ErrosValoresAvaliacao = {};
+  const previsto = lerValorDaAvaliacao(v.valorPrevisto);
+  if ('aviso' in previsto) erros.valorPrevisto = previsto.aviso;
+
+  let descontoValor = 0;
+  if (v.descontoTipo === 'percentual') {
+    const texto = v.descontoValor.trim();
+    const porcentagem = texto === '' ? 0 : /^\d+$/.test(texto) ? Number(texto) : Number.NaN;
+    if (porcentagem <= 100) descontoValor = porcentagem;
+    else erros.descontoValor = 'Use uma porcentagem de 0 a 100.';
+  } else if (v.descontoTipo === 'reais') {
+    const reais = v.descontoValor.trim() === '' ? 0 : lerReais(v.descontoValor);
+    if (reais === null) erros.descontoValor = 'Informe um valor válido, como 150 ou 150,50.';
+    else if ('centavos' in previsto && reais > previsto.centavos) erros.descontoValor = 'O desconto passa do valor previsto.';
+    else descontoValor = reais;
+  }
+
+  if (Object.keys(erros).length > 0 || !('centavos' in previsto)) return { erros, dados: null };
+  return ok({ valorPrevistoCentavos: previsto.centavos, descontoTipo: v.descontoTipo, descontoValor });
 }

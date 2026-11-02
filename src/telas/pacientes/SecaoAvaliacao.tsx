@@ -7,9 +7,10 @@ import { SecaoRecolhivel } from '../../componentes/SecaoRecolhivel';
 import { useSalvarAvaliacao } from '../../dados/useFicha';
 import type { Avaliacao } from '../../dominio/tipos';
 import { SESSOES_PREVISTAS_MAXIMAS, validarEtapa, validarSessoesPrevistas } from '../../regras/formularios';
+import { ValoresDaAvaliacao } from './ValoresDaAvaliacao';
 
 /**
- * A avaliação em andamento: quantas sessões estão previstas e as etapas para marcar
+ * A avaliação em andamento: quantas sessões estão previstas, o valor do pacote e as etapas para marcar
  * (marcar grava na hora). Só aparece para quem está em avaliação.
  */
 export function SecaoAvaliacao({ avaliacao }: { avaliacao: Avaliacao }) {
@@ -67,6 +68,8 @@ export function SecaoAvaliacao({ avaliacao }: { avaliacao: Avaliacao }) {
           Salvar sessões previstas
         </Botao>
       </form>
+
+      <ValoresDaAvaliacao avaliacao={avaliacao} />
 
       <div className="flex flex-col gap-2">
         <h3 className="text-lg">Etapas</h3>
