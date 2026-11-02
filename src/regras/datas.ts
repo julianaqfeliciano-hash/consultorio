@@ -37,6 +37,20 @@ export function somarDias(d: DataISO, n: number): DataISO {
   return format(addDays(meiaNoite(d), n), 'yyyy-MM-dd');
 }
 
+/** Anda `n` meses (pode ser negativo) a partir do mês de `mes`. Sempre devolve o dia 1: '2026-12-01' + 1 → '2027-01-01'. */
+export function somarMeses(mes: DataISO, n: number): DataISO {
+  const [ano, numero] = mes.split('-').map(Number);
+  const indice = ano * 12 + (numero - 1) + n;
+  const anoNovo = String(Math.floor(indice / 12)).padStart(4, '0');
+  const mesNovo = String((indice % 12) + 1).padStart(2, '0');
+  return `${anoNovo}-${mesNovo}-01`;
+}
+
+/** O último dia do mês de `mes` ('2026-10-01' → '2026-10-31'). */
+export function ultimoDiaDoMes(mes: DataISO): DataISO {
+  return somarDias(somarMeses(mes, 1), -1);
+}
+
 /** Dia da semana de uma data: 0 = domingo, 1 = segunda, ..., 6 = sábado. */
 export function diaDaSemana(d: DataISO): number {
   return meiaNoite(d).getDay();

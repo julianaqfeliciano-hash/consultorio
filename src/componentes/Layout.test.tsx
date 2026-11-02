@@ -29,8 +29,8 @@ describe('Layout', () => {
     expect(screen.getByText('Juliana Feliciano')).toBeInTheDocument();
   });
 
-  it('Financeiro mostra "Em construção"', () => {
-    renderComRotas('/financeiro');
+  it('Relatórios mostra "Em construção"', () => {
+    renderComRotas('/relatorios');
     expect(screen.getByText(/em construção/i)).toBeInTheDocument();
   });
 });

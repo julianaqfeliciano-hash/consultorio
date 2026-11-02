@@ -13,6 +13,8 @@ import {
   instanteDe,
   mesmoDiaNaSemana,
   somarDias,
+  somarMeses,
+  ultimoDiaDoMes,
 } from './datas';
 
 describe('datas (fuso America/Sao_Paulo)', () => {
@@ -83,5 +85,22 @@ describe('datas (fuso America/Sao_Paulo)', () => {
     expect(entre('2026-11-17', '2026-11-10', '2026-11-17')).toBe(true);
     expect(entre('2026-11-09', '2026-11-10', '2026-11-17')).toBe(false);
     expect(entre('2026-11-18', '2026-11-10', '2026-11-17')).toBe(false);
+  });
+
+  it('somarMeses anda de mês em mês, sempre no dia 1, passando pelo fim do ano', () => {
+    expect(somarMeses('2026-11-01', 1)).toBe('2026-12-01');
+    expect(somarMeses('2026-12-01', 1)).toBe('2027-01-01');
+    expect(somarMeses('2027-01-01', -1)).toBe('2026-12-01');
+    expect(somarMeses('2026-11-01', -11)).toBe('2025-12-01');
+    expect(somarMeses('2026-11-01', 0)).toBe('2026-11-01');
+    expect(somarMeses('2026-11-01', 14)).toBe('2028-01-01');
+  });
+
+  it('ultimoDiaDoMes conhece os meses de 28, 29, 30 e 31 dias', () => {
+    expect(ultimoDiaDoMes('2026-10-01')).toBe('2026-10-31');
+    expect(ultimoDiaDoMes('2026-11-01')).toBe('2026-11-30');
+    expect(ultimoDiaDoMes('2026-02-01')).toBe('2026-02-28');
+    expect(ultimoDiaDoMes('2028-02-01')).toBe('2028-02-29');
+    expect(ultimoDiaDoMes('2026-12-01')).toBe('2026-12-31');
   });
 });

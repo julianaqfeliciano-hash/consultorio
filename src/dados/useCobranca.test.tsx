@@ -2,13 +2,16 @@ import { useQueryClient } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { Provedores } from '../Provedores';
-import { ANA, HOJE, MARIA, PEDRO, repositorioDemo, usarHojeFixo } from '../testes/ficha';
+import { ANA, HOJE, LUCAS, MARIA, PEDRO, repositorioDemo, usarHojeFixo } from '../testes/ficha';
 import { criarRepositorioMemoria } from './memoria';
+import { sementeDemo } from './semente-demo';
 import type { Repositorio } from './repositorio';
 import { ErroCobranca, type PedidoPagamento } from '../servicos/cobranca';
 import {
   mensagemDoErro,
   useAgendarReposicao,
+  useAReceber,
+  usePagamentosDoMes,
   usePagamentosDoPaciente,
   usePendencias,
   useRegistrarPagamento,
@@ -91,6 +94,131 @@ describe('usePendencias', () => {
     const { result } = montar(() => usePendencias('nao-existe'), criarRepositorioMemoria());
 
     await waitFor(() => expect(result.current).toBeUndefined());
+  });
+});
+
+describe('usePagamentosDoMes', () => {
+  it('devolve os pagamentos do mês de todos os pacientes, do mais antigo para o mais novo', async () => {
+    const { result } = montar(() => usePagamentosDoMes('2026-10-01'));
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(result.current.data?.map((p) => p.id)).toEqual(['demo-pagamento-pedro', 'demo-pagamento-maria']);
+  });
+
+  it('um mês sem pagamentos devolve a lista vazia', async () => {
+    const { result } = montar(() => usePagamentosDoMes('2026-11-01'));
+
+    await waitFor(() => expect(result.current.data).toEqual([]));
+  });
+
+  it('inclui o primeiro e o último dia do mês e deixa de fora os dias vizinhos', async () => {
+    const semente = sementeDemo(HOJE);
+    const pagamento = (id: string, data: string) => ({ ...semente.pagamentos[0], id, data });
+    const repositorio = criarRepositorioMemoria({
+      ...semente,
+      pagamentos: [
+        pagamento('fim-de-setembro', '2026-09-30'),
+        pagamento('primeiro-de-outubro', '2026-10-01'),
+        pagamento('ultimo-de-outubro', '2026-10-31'),
+        pagamento('primeiro-de-novembro', '2026-11-01'),
+      ],
+    });
+    const { result } = montar(() => usePagamentosDoMes('2026-10-01'), repositorio);
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(result.current.data?.map((p) => p.id)).toEqual(['primeiro-de-outubro', 'ultimo-de-outubro']);
+  });
+
+  it('é refeito quando um pagamento é registrado', async () => {
+    const { result } = montar(() => ({ mes: usePagamentosDoMes('2026-11-01'), registrar: useRegistrarPagamento() }));
+    await waitFor(() => expect(result.current.mes.data).toEqual([]));
+
+    result.current.registrar.mutate({
+      pacienteId: MARIA,
+      referencia: 'sessoes',
+      sessaoIds: ['demo-sessao-maria-2'],
+      data: HOJE,
+      forma: 'pix',
+      observacao: null,
+    });
+
+    await waitFor(() => expect(result.current.mes.data).toHaveLength(1));
+    expect(result.current.mes.data?.[0]).toMatchObject({ pacienteId: MARIA, valorCentavos: 18000, data: HOJE });
+  });
+});
+
+describe('useAReceber', () => {
+  it('enquanto carrega, não tem dados', () => {
+    const { result } = montar(() => useAReceber());
+
+    expect(result.current.data).toBeUndefined();
+  });
+
+  it('junta pacientes, sessões, pagamentos e avaliações: Ana, Pedro e Maria, do que espera há mais tempo ao mais recente', async () => {
+    const { result } = montar(() => useAReceber());
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(result.current.data?.map((i) => [i.paciente.id, i.totalCentavos, i.desde])).toEqual([
+      [ANA, 80000, '2026-10-01'],
+      [PEDRO, 81000, '2026-10-14'],
+      [MARIA, 18000, '2026-10-29'],
+    ]);
+  });
+
+  it('não mostra quem não deve nada (Lucas, na lista de espera, sem sessão)', async () => {
+    const { result } = montar(() => useAReceber());
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(result.current.data?.map((i) => i.paciente.id)).not.toContain(LUCAS);
+  });
+
+  it('quem teve alta ou está na lista de espera continua aparecendo enquanto deve', async () => {
+    const semente = sementeDemo(HOJE);
+    const comStatus = (id: string, status: 'alta' | 'lista_espera') =>
+      semente.pacientes.map((p) => (p.id === id ? { ...p, status } : p));
+    const comAna = criarRepositorioMemoria({ ...semente, pacientes: comStatus(ANA, 'alta') });
+    const comMaria = criarRepositorioMemoria({ ...semente, pacientes: comStatus(MARIA, 'lista_espera') });
+
+    const daAna = montar(() => useAReceber(), comAna);
+    const daMaria = montar(() => useAReceber(), comMaria);
+
+    await waitFor(() => expect(daAna.result.current.data).toBeDefined());
+    await waitFor(() => expect(daMaria.result.current.data).toBeDefined());
+    expect(daAna.result.current.data?.map((i) => i.paciente.id)).toContain(ANA);
+    expect(daMaria.result.current.data?.map((i) => i.paciente.id)).toContain(MARIA);
+  });
+
+  it('só conta as sessões de cada paciente: os R$ 800,00 da Ana não vão para a Maria', async () => {
+    const { result } = montar(() => useAReceber());
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(result.current.data?.find((i) => i.paciente.id === MARIA)?.totalCentavos).toBe(18000);
+  });
+
+  it('é refeito quando um pagamento é registrado: a Maria sai da lista', async () => {
+    const { result } = montar(() => ({ aReceber: useAReceber(), registrar: useRegistrarPagamento() }));
+    await waitFor(() => expect(result.current.aReceber.data).toHaveLength(3));
+
+    result.current.registrar.mutate({
+      pacienteId: MARIA,
+      referencia: 'sessoes',
+      sessaoIds: ['demo-sessao-maria-2'],
+      data: HOJE,
+      forma: 'pix',
+      observacao: null,
+    });
+
+    await waitFor(() => expect(result.current.aReceber.data?.map((i) => i.paciente.id)).toEqual([ANA, PEDRO]));
+  });
+
+  it('se a consulta falha, avisa o erro', async () => {
+    const base = repositorioDemo();
+    const { result } = montar(
+      () => useAReceber(),
+      { ...base, listarSessoesCobradas: vi.fn().mockRejectedValue(new Error('sem rede')) },
+    );
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
   });
 });
 

@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
-import type { Id, Sessao } from '../dominio/tipos';
-import { pendenciasDoPaciente, type Pendencias } from '../regras/cobranca';
-import { hojeISO } from '../regras/datas';
+import type { DataISO, Id, Sessao } from '../dominio/tipos';
+import { pendenciasDoPaciente, resumoAReceber, type Pendencias } from '../regras/cobranca';
+import { hojeISO, ultimoDiaDoMes } from '../regras/datas';
 import {
   agendarReposicao,
   ErroCobranca,
@@ -11,9 +11,12 @@ import {
   type PedidoPagamento,
 } from '../servicos/cobranca';
 import { useRepositorio } from './contexto';
+import type { SessaoComPaciente } from './repositorio';
 import { useFicha, useSessoesDoPaciente } from './useFicha';
 
 const chavePagamentos = (id: Id) => ['pagamentos', id] as const;
+/** Os pagamentos de um mês, de todos os pacientes. Começa por 'pagamentos': quem invalida os pagamentos refaz esta também. */
+const chavePagamentosDoMes = (mes: DataISO) => ['pagamentos', 'mes', mes] as const;
 
 /** Tudo que um pagamento ou uma reposição pode mudar na tela. 'aReceber' é a lista de quem tem algo a receber. */
 const CHAVES_DA_COBRANCA = ['pagamentos', 'sessoes', 'ficha', 'pacientes', 'aReceber'] as const;
@@ -40,6 +43,52 @@ export function usePendencias(pacienteId: Id): Pendencias | undefined {
     if (!ficha || !sessoes || !pagamentos) return undefined;
     return pendenciasDoPaciente({ paciente: ficha.paciente, sessoes, pagamentos, avaliacao: ficha.avaliacao, hoje });
   }, [ficha, sessoes, pagamentos, hoje]);
+}
+
+/** Os pagamentos com data em `mes` (o dia 1, 'YYYY-MM-01') de todos os pacientes, do mais antigo para o mais novo. */
+export function usePagamentosDoMes(mes: DataISO) {
+  const repositorio = useRepositorio();
+  return useQuery({
+    queryKey: chavePagamentosDoMes(mes),
+    queryFn: () => repositorio.listarPagamentos({ de: mes, ate: ultimoDiaDoMes(mes) }),
+  });
+}
+
+/**
+ * Quem tem algo a receber, de qualquer mês: cada paciente (inclusive quem teve alta ou está na lista de espera)
+ * com o que deve e desde quando, do que espera há mais tempo ao mais recente (veja `resumoAReceber`).
+ *
+ * Cada paciente entra com as sessões cobradas dele e a avaliação da ficha, como na seção Financeiro da ficha: quem
+ * passou da avaliação para a psicoterapia ainda deve o que faltou do pacote, então a ficha de todos é consultada.
+ */
+export function useAReceber() {
+  const repositorio = useRepositorio();
+  return useQuery({
+    queryKey: ['aReceber'],
+    queryFn: async () => {
+      const [pacientes, cobradas, pagamentos] = await Promise.all([
+        repositorio.listarPacientes(),
+        repositorio.listarSessoesCobradas(),
+        repositorio.listarPagamentos(),
+      ]);
+      const fichas = await Promise.all(pacientes.map((p) => repositorio.obterFicha(p.id)));
+      const sessoesPorPaciente = new Map<Id, SessaoComPaciente[]>();
+      for (const s of cobradas) sessoesPorPaciente.set(s.pacienteId, [...(sessoesPorPaciente.get(s.pacienteId) ?? []), s]);
+      const hoje = hojeISO();
+      return resumoAReceber(
+        pacientes.map((paciente, i) => ({
+          paciente,
+          pendencias: pendenciasDoPaciente({
+            paciente,
+            sessoes: sessoesPorPaciente.get(paciente.id) ?? [],
+            pagamentos,
+            avaliacao: fichas[i]?.avaliacao ?? null,
+            hoje,
+          }),
+        })),
+      );
+    },
+  });
 }
 
 /**
