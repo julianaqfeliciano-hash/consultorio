@@ -12,6 +12,7 @@ import { SecaoAtendimento } from './SecaoAtendimento';
 import { SecaoAvaliacao } from './SecaoAvaliacao';
 import { SecaoCobranca } from './SecaoCobranca';
 import { SecaoDados } from './SecaoDados';
+import { SecaoFinanceiro } from './SecaoFinanceiro';
 import { SecaoHorarios } from './SecaoHorarios';
 import { SecaoResponsaveis } from './SecaoResponsaveis';
 import { SecaoSessoes } from './SecaoSessoes';
@@ -52,7 +53,7 @@ function Cabecalho({ ficha }: { ficha: DadosDaFicha }) {
 
 /**
  * A ficha do paciente, em seções que abrem e fecham (no celular, as de consulta rápida começam
- * abertas). Documentos e Financeiro chegam nos próximos planos.
+ * abertas). Documentos chega num próximo plano.
  */
 export function FichaPaciente() {
   const { id = '' } = useParams();
@@ -97,6 +98,7 @@ export function FichaPaciente() {
       <SecaoDados paciente={paciente} />
       <SecaoAtendimento paciente={paciente} />
       <SecaoCobranca paciente={paciente} />
+      <SecaoFinanceiro pacienteId={paciente.id} />
       <SecaoResponsaveis pacienteId={paciente.id} responsaveis={responsaveis} />
       <SecaoHorarios pacienteId={paciente.id} status={paciente.status} horarios={horarios} />
       {paciente.tipo === 'avaliacao' && avaliacao && <SecaoAvaliacao avaliacao={avaliacao} />}

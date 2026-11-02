@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ComponentProps } from 'react';
 import { usarHojeFixo } from '../testes/ficha';
@@ -103,6 +103,14 @@ describe('FormularioPagamento', () => {
     const botao = screen.getByRole('button', { name: 'Registrando…' });
     expect(botao).toBeDisabled();
     await usuaria.click(botao);
+    expect(aoEnviar).not.toHaveBeenCalled();
+  });
+
+  it('enquanto envia, enviar o formulário de outro jeito (Enter num campo) também não entrega nada', () => {
+    const { aoEnviar } = montar({ enviando: true, titulo: 'Registrar pagamento' });
+
+    fireEvent.submit(screen.getByRole('form', { name: 'Registrar pagamento' }));
+
     expect(aoEnviar).not.toHaveBeenCalled();
   });
 

@@ -74,7 +74,7 @@ describe('FichaPaciente — cabeçalho', () => {
     expect(await screen.findByText('Na lista de espera')).toBeInTheDocument();
   });
 
-  it('as abas Documentos e Financeiro da ficha ainda não existem', async () => {
+  it('a aba Documentos da ficha ainda não existe, e a ficha não usa abas', async () => {
     abrirFicha(ANA);
     await screen.findByRole('heading', { level: 1, name: 'Ana Clara Souza' });
 
@@ -149,7 +149,7 @@ describe('FichaPaciente — seções recolhíveis', () => {
       for (const fechada of ['Dados da criança', 'Atendimento', 'Cobrança']) {
         expect(screen.getByRole('button', { name: fechada })).toHaveAttribute('aria-expanded', 'false');
       }
-      for (const aberta of ['Responsáveis', 'Horários fixos', 'Avaliação', 'Sessões']) {
+      for (const aberta of ['Financeiro', 'Responsáveis', 'Horários fixos', 'Avaliação', 'Sessões']) {
         expect(screen.getByRole('button', { name: aberta })).toHaveAttribute('aria-expanded', 'true');
       }
     });

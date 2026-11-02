@@ -59,6 +59,8 @@ export function FormularioPagamento({
 
   function enviar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault();
+    // O botão já fica desligado, mas Enter num campo também envia: quem grava não pode receber o pedido duas vezes.
+    if (enviando) return;
     const lido = validarPagamento(valores, valorEditavel);
     setErros(lido.erros);
     if (lido.dados !== null) aoEnviar(lido.dados);
