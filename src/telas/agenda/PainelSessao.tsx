@@ -6,13 +6,16 @@ import { ChipSituacao } from '../../componentes/ChipSituacao';
 import { EtiquetaTipo } from '../../componentes/EtiquetaTipo';
 import type { SessaoComPaciente } from '../../dados/repositorio';
 import { useAtualizarSessao, useMarcarSituacao } from '../../dados/useAgenda';
+import { mensagemDoErro } from '../../dados/useCobranca';
 import { ICONE_SITUACAO, tipoVisual } from '../../dominio/rotulos';
 import type { SituacaoSessao } from '../../dominio/tipos';
 import { ehCobravel } from '../../regras/agenda';
 import { dataLocal, diaPorExtenso, horaLocal } from '../../regras/datas';
+import { CobrancaDaSessao } from './CobrancaDaSessao';
 import { DestinoDaRemarcacao } from './DestinoDaRemarcacao';
 import { ObservacaoDaSessao } from './ObservacaoDaSessao';
 import { RemarcarSessao } from './RemarcarSessao';
+import { ReposicaoDaSessao } from './ReposicaoDaSessao';
 import { RotuloAvaliacao } from './RotuloAvaliacao';
 
 type SituacaoEscolhivel = Exclude<SituacaoSessao, 'remarcada'>;
@@ -25,8 +28,8 @@ const BOTOES_DE_SITUACAO: readonly { situacao: SituacaoEscolhivel; rotulo: strin
 ];
 
 /**
- * O que se faz com uma sessão: dizer o que aconteceu, remarcar (só a que não é cobrada), marcar como
- * acompanhamento familiar e anotar.
+ * O que se faz com uma sessão: dizer o que aconteceu, ver como ela é cobrada (e registrar o pagamento), repor a falta
+ * da avaliação, remarcar (só a que não é cobrada), marcar como acompanhamento familiar e anotar.
  * O título (nome do paciente) fica por conta da `Folha` que o envolve. A sessão vem de quem o usa e é
  * atualizada por lá a cada mudança.
  */
@@ -37,6 +40,8 @@ export function PainelSessao({ sessao }: { sessao: SessaoComPaciente }) {
   const remarcada = sessao.situacao === 'remarcada';
   // Sessão já cobrada (compareceu, faltou sem aviso) não é remarcada: viraria "remarcada" e perderia a cobrança.
   const podeRemarcar = !remarcada && !ehCobravel(sessao.situacao);
+  // Falta sem aviso na avaliação é cobrada à parte e ganha uma sessão de reposição (spec §6.4).
+  const podeRepor = sessao.tipo === 'avaliacao' && sessao.situacao === 'falta_sem_aviso';
   // Enquanto grava, a caixa já mostra a escolha (a sessão só muda quando os dados novos chegam).
   const acompanhamentoFamiliar = familiar.isPending
     ? (familiar.variables.mudancas.acompanhamentoFamiliar ?? sessao.acompanhamentoFamiliar)
@@ -94,10 +99,13 @@ export function PainelSessao({ sessao }: { sessao: SessaoComPaciente }) {
               Voltar para Agendada
             </Botao>
           )}
-          {marcar.isError && <Aviso tipo="erro">Não foi possível salvar. Tente de novo.</Aviso>}
+          {/* A recusa do serviço (sessão já paga) é uma frase para ela ler; o resto é falha de rede ou do banco. */}
+          {marcar.isError && <Aviso tipo="erro">{mensagemDoErro(marcar.error, 'Não foi possível salvar. Tente de novo.')}</Aviso>}
         </fieldset>
       )}
 
+      {!remarcada && <CobrancaDaSessao sessao={sessao} />}
+      {podeRepor && <ReposicaoDaSessao sessao={sessao} />}
       {podeRemarcar && <RemarcarSessao sessao={sessao} />}
 
       <div className="flex flex-col gap-2">

@@ -5,7 +5,7 @@ import { criarRepositorioMemoria } from '../../dados/memoria';
 import { sementeDemo } from '../../dados/semente-demo';
 import { CONFIGURACOES_PADRAO } from '../../dominio/padroes';
 import { instanteDe } from '../../regras/datas';
-import { ANA, HOJE, repositorioDemo, usarHojeFixo } from '../../testes/ficha';
+import { ANA, HOJE, MARIA, repositorioDemo, usarHojeFixo } from '../../testes/ficha';
 import { sessaoExemplo } from '../../testes/fabricas';
 import { renderComRotas } from '../../testes/utilitarios';
 import type { Repositorio } from '../../dados/repositorio';
@@ -235,6 +235,109 @@ describe('TelaAgenda — painel da sessão', () => {
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(cartao).toHaveFocus();
+  });
+});
+
+describe('TelaAgenda — cobrança no painel (semente demo, hoje 02/11)', () => {
+  type Usuaria = ReturnType<typeof userEvent.setup>;
+
+  /** Volta `semanas` semanas, acha o paciente no dia e abre o painel dele. */
+  async function abrirSessaoDe(usuaria: Usuaria, paciente: string, data: string, semanasAntes = 0) {
+    for (let i = 0; i < semanasAntes; i++) {
+      await usuaria.click(screen.getByRole('button', { name: 'Semana anterior' }));
+    }
+    await usuaria.click(await cartaoDe(await dia(data), paciente));
+    return screen.findByRole('dialog', { name: paciente });
+  }
+
+  it('a quinta 22/10 da Maria foi paga em Pix: "Pago em 22/10 · Pix"', async () => {
+    const { usuaria } = await abrirAgenda();
+
+    const painel = await abrirSessaoDe(usuaria, 'Maria Luísa Costa', 'quinta-feira, 22/10', 2);
+
+    expect(await within(painel).findByText('Pago em 22/10 · Pix')).toBeInTheDocument();
+    expect(within(painel).queryByRole('button', { name: 'Registrar pagamento' })).not.toBeInTheDocument();
+  });
+
+  it('a quinta 29/10 da Maria está em aberto; registrar com Pix passa a "Pago em 02/11 · Pix"', async () => {
+    const { usuaria, repositorio } = await abrirAgenda();
+    const painel = await abrirSessaoDe(usuaria, 'Maria Luísa Costa', 'quinta-feira, 29/10', 1);
+    expect(await within(painel).findByText('Pendente · R$ 180,00')).toBeInTheDocument();
+
+    await usuaria.click(within(painel).getByRole('button', { name: 'Registrar pagamento' }));
+    const formulario = within(painel).getByRole('form', { name: 'Registrar pagamento' });
+    expect(within(formulario).getByRole('radio', { name: 'Pix' })).toBeChecked();
+    await usuaria.click(within(formulario).getByRole('button', { name: 'Confirmar pagamento' }));
+
+    expect(await within(painel).findByText('Pago em 02/11 · Pix')).toBeInTheDocument();
+    expect(within(painel).queryByText(/^Pendente/)).not.toBeInTheDocument();
+    const pagamentos = await repositorio.listarPagamentos({ pacienteId: MARIA });
+    expect(pagamentos).toHaveLength(2);
+    expect(pagamentos.find((p) => p.sessaoIds.includes('demo-sessao-maria-2'))).toMatchObject({
+      valorCentavos: 18000,
+      data: '2026-11-02',
+      forma: 'pix',
+    });
+  });
+
+  it('a terça 27/10 da Ana (paga por mês): "Entra na mensalidade de outubro de 2026"', async () => {
+    const { usuaria } = await abrirAgenda();
+
+    const painel = await abrirSessaoDe(usuaria, 'Ana Clara Souza', 'terça-feira, 27/10', 1);
+
+    expect(await within(painel).findByText('Entra na mensalidade de outubro de 2026')).toBeInTheDocument();
+    expect(within(painel).queryByRole('button', { name: 'Registrar pagamento' })).not.toBeInTheDocument();
+  });
+
+  it('a sessão já feita do Pedro (28/10): "Incluída no pacote da avaliação"', async () => {
+    const { usuaria } = await abrirAgenda();
+
+    const painel = await abrirSessaoDe(usuaria, 'Pedro Henrique Lima', 'quarta-feira, 28/10', 1);
+
+    expect(await within(painel).findByText('Incluída no pacote da avaliação')).toBeInTheDocument();
+    expect(within(painel).queryByRole('button', { name: 'Registrar pagamento' })).not.toBeInTheDocument();
+  });
+
+  it('na sessão paga, "Faltou com aviso" mostra a recusa e o chip do painel e o do cartão continuam "Compareceu"', async () => {
+    const { usuaria, repositorio } = await abrirAgenda();
+    const painel = await abrirSessaoDe(usuaria, 'Maria Luísa Costa', 'quinta-feira, 22/10', 2);
+    await within(painel).findByText('Pago em 22/10 · Pix');
+
+    await usuaria.click(within(painel).getByRole('button', { name: 'Faltou com aviso' }));
+
+    expect(await within(painel).findByRole('alert')).toHaveTextContent(
+      'Esta sessão já foi paga. Para mudar a situação, remova o pagamento na ficha do paciente.',
+    );
+    expect(within(painel).getByText('Compareceu', { selector: 'span' })).toBeInTheDocument();
+    expect(within(painel).getByRole('button', { name: 'Compareceu' })).toHaveAttribute('aria-pressed', 'true');
+    await usuaria.click(within(painel).getByRole('button', { name: 'Fechar' }));
+    const cartao = await cartaoDe(await dia('quinta-feira, 22/10'), 'Maria Luísa Costa');
+    expect(within(cartao).getByText('Compareceu')).toBeInTheDocument();
+    const [primeira] = (await repositorio.listarSessoesDoPaciente(MARIA)).filter((s) => s.id === 'demo-sessao-maria-1');
+    expect(primeira).toMatchObject({ situacao: 'compareceu', valorCentavos: 18000 });
+  });
+
+  it('Pedro, quarta 04/11: "Faltou sem aviso" fica "Pendente · R$ 160,00" e "Agendar reposição" cria a sessão de sexta 10:00', async () => {
+    const { usuaria } = await abrirAgenda();
+    const painel = await abrirSessaoDe(usuaria, 'Pedro Henrique Lima', 'quarta-feira, 04/11');
+    expect(within(painel).queryByRole('heading', { name: 'Agendar reposição' })).not.toBeInTheDocument();
+
+    await usuaria.click(within(painel).getByRole('button', { name: 'Faltou sem aviso' }));
+
+    expect(await within(painel).findByText('Pendente · R$ 160,00')).toBeInTheDocument();
+    await usuaria.type(within(painel).getByLabelText('Nova data'), '2026-11-06');
+    await usuaria.type(within(painel).getByLabelText('Nova hora'), '10:00');
+    await usuaria.click(within(painel).getByRole('button', { name: 'Agendar reposição' }));
+
+    expect(await within(painel).findByText('Reposição em sexta-feira, 06/11, 10:00')).toBeInTheDocument();
+    await usuaria.click(within(painel).getByRole('button', { name: 'Fechar' }));
+    const quarta = await dia('quarta-feira, 04/11');
+    expect(within(await cartaoDe(quarta, 'Pedro Henrique Lima')).getByText('Faltou sem aviso')).toBeInTheDocument();
+    const sexta = await dia('sexta-feira, 06/11');
+    const nova = await cartaoDe(sexta, 'Pedro Henrique Lima');
+    expect(nova).toHaveTextContent('10:00');
+    expect(within(nova).getByText('Agendada')).toBeInTheDocument();
+    expect(within(nova).getByText('Avaliação')).toBeInTheDocument();
   });
 });
 

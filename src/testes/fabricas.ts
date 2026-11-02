@@ -1,4 +1,4 @@
-import type { Avaliacao, HorarioFixo, Paciente, Sessao } from '../dominio/tipos';
+import type { Avaliacao, HorarioFixo, Paciente, Pagamento, Sessao } from '../dominio/tipos';
 
 /**
  * Dados de apoio dos testes de serviços. O padrão é a Ana (id `p1`), em
@@ -76,6 +76,23 @@ export function sessaoExemplo(sobre: Partial<Sessao> = {}): Sessao {
     confirmada: false,
     observacao: null,
     valorCentavos: null,
+    ...sobre,
+  };
+}
+
+/** Pagamento de uma sessão (a `s1`) em Pix no dia 2026-11-01; cada teste troca o que importa. */
+export function pagamentoExemplo(sobre: Partial<Pagamento> = {}): Pagamento {
+  return {
+    id: 'pg1',
+    pacienteId: 'p1',
+    data: '2026-11-01',
+    valorCentavos: 20000,
+    forma: 'pix',
+    observacao: null,
+    referencia: 'sessoes',
+    mesReferencia: null,
+    avaliacaoId: null,
+    sessaoIds: ['s1'],
     ...sobre,
   };
 }
