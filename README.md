@@ -4,8 +4,10 @@ Sistema de gestão do consultório de psicologia infantojuvenil: agenda, pacient
 cobranças, registro das sessões, documentos e relatórios financeiros.
 É um aplicativo web instalável (PWA) em React + TypeScript + Vite, com banco e login no Supabase.
 
-Estado atual: **Etapas 1 e 2** (base e agenda): login, configurações, parceiros, pacientes e responsáveis,
-horários fixos, agenda semanal, lista de amanhã com WhatsApp e bloqueios. A próxima é a Etapa 3, de cobrança.
+Estado atual: **Etapas 1, 2 e 3** (base, agenda e cobrança): login, configurações, parceiros, pacientes e responsáveis,
+horários fixos, agenda semanal, lista de amanhã com WhatsApp e bloqueios, e a cobrança: a aba **Financeiro**
+(quem está devendo e os pagamentos do mês), o financeiro na ficha de cada paciente e o pagamento direto no painel
+da sessão. A migração da cobrança (`supabase/migrations/20261101120000_cobranca.sql`) roda depois da base.
 
 ## Documentos
 

@@ -36,14 +36,14 @@ Plano: [`plans/2026-10-23-etapas-1-e-2-base-e-agenda.md`](plans/2026-10-23-etapa
 
 ## Para o plano da Etapa 3 (cobrança) e seguintes
 
-- `mudarTipo` deve atualizar as sessões fixas agendadas no lugar, sem apagar e recriar. Deve respeitar `inicio > agora` e conciliar em vez de sair cedo quando o tipo já é o novo.
+- ~~RESOLVIDO na Etapa 3~~ `mudarTipo` deve atualizar as sessões fixas agendadas no lugar, sem apagar e recriar. Deve respeitar `inicio > agora` e conciliar em vez de sair cedo quando o tipo já é o novo.
 - Um algoritmo de mudança de horário que **mova** as sessões agendadas em vez de apagar e regenerar.
 - Corrida rara: se a agenda for gerada em outro aparelho entre a criação do novo horário e a troca de chave, a semana fica com duas sessões. Em caso de conflito, remover a sessão futura gerada e tentar de novo.
-- Modelar "falta sem aviso + remarcada" na avaliação (§6.4). Hoje remarcar substitui a situação.
-- Toda migração nova:
+- ~~RESOLVIDO na Etapa 3~~ Modelar "falta sem aviso + remarcada" na avaliação (§6.4). Hoje remarcar substitui a situação.
+- ~~RESOLVIDO na Etapa 3 (revoke de `anon` por padrão)~~ Toda migração nova (a RLS em tabela nova continua valendo):
   - `alter default privileges in schema public revoke all on tables from anon`;
   - RLS em toda tabela nova.
-- Paginar além do limite de 1000 linhas do PostgREST (relatórios e meses inteiros).
+- ~~RESOLVIDO na Etapa 3~~ Paginar além do limite de 1000 linhas do PostgREST (relatórios e meses inteiros).
 - Readmitir paciente com alta.
 - Editar a duração de uma sessão específica.
 - Tela para remover um bloqueio.
@@ -51,7 +51,7 @@ Plano: [`plans/2026-10-23-etapas-1-e-2-base-e-agenda.md`](plans/2026-10-23-etapa
 - Endereço de ficha inválido mostra "não foi possível carregar" em vez de "paciente não encontrado".
 - Contagens dos grupos de pacientes ainda em Prata.
 - Pequenos ajudantes duplicados (`ok()`, `diaEMes`).
-- Teste que fixe as colunas do adaptador Supabase contra as tabelas migradas (PGlite).
+- ~~RESOLVIDO na Etapa 3~~ Teste que fixe as colunas do adaptador Supabase contra as tabelas migradas (PGlite).
 - Comentário em `tipos.ts` explicando que `dataOcorrencia` e `horarioFixoId` são chave de ocorrência.
 - Observações menores de acessibilidade e UX registradas nas revisões:
   - foco depois de fechar formulários;
