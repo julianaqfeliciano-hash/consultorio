@@ -92,6 +92,9 @@ segundo texto pronto, no mesmo lugar do primeiro. **A ordem importa:** primeiro 
 - **Se você já instalou o sistema antes** (só rodou o arquivo da base): **não rode a base de novo.** Faça apenas os
   passos abaixo, uma única vez.
 
+**Rode este arquivo no Supabase antes de atualizar o sistema** (antes de a versão nova ser publicada no Cloudflare): o
+sistema antigo continua funcionando com o banco já atualizado, mas o novo precisa das tabelas novas.
+
 1. No GitHub, volte à pasta **`supabase`** → **`migrations`** e clique no arquivo **`20261101120000_cobranca.sql`**.
 2. Copie o texto inteiro, do mesmo jeito do passo 4 do item 1.3 (botão de copiar o arquivo bruto, ou **“Raw”** e depois
    **Ctrl + A** e **Ctrl + C**).
