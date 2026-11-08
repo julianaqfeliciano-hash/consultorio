@@ -96,3 +96,4 @@ Para depois:
 - O desconto do parceiro não vem sozinho do parceiro que encaminhou: é digitado.
 - O pacote inteiro da avaliação conta como devido desde o início dela.
 - Uma ligação de pagamento pode apontar para a sessão de outra conta (as chaves estrangeiras não passam pelo RLS). Hoje só existe uma conta.
+- Ao remover um pagamento complementar de um mês, o aviso diz "O mês volta a ficar em aberto.", mas só a diferença volta (a ficha mostra o valor certo logo depois).
