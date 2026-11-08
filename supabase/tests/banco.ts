@@ -4,11 +4,16 @@ import { readdirSync, readFileSync } from 'node:fs';
 const arquivoShim = new URL('./shim.sql', import.meta.url);
 const pastaMigracoes = new URL('../migrations/', import.meta.url);
 
-function lerMigracoes(): string[] {
+/** As migrações, na ordem em que rodam (a do nome). */
+export function migracoes(): { nome: string; sql: string }[] {
   return readdirSync(pastaMigracoes)
     .filter((nome) => nome.endsWith('.sql'))
     .sort()
-    .map((nome) => readFileSync(new URL(nome, pastaMigracoes), 'utf8'));
+    .map((nome) => ({ nome, sql: readFileSync(new URL(nome, pastaMigracoes), 'utf8') }));
+}
+
+function lerMigracoes(): string[] {
+  return migracoes().map((m) => m.sql);
 }
 
 // Subir o PGlite do zero leva ~2 s; abrir um banco a partir de um modelo já
@@ -32,6 +37,19 @@ let modelo: Promise<File | Blob> | undefined;
 export async function criarBanco(): Promise<PGlite> {
   modelo ??= montarModelo();
   return PGlite.create({ loadDataDir: await modelo });
+}
+
+/**
+ * Banco novo com o shim e só as migrações que rodam antes de `nome`: o projeto de quem ainda não rodou essa
+ * migração. Serve para testar uma migração sobre dados que já existiam. Quem chama fecha o banco.
+ */
+export async function criarBancoAntesDe(nome: string): Promise<PGlite> {
+  const db = await PGlite.create();
+  await db.exec(readFileSync(arquivoShim, 'utf8'));
+  for (const m of migracoes()) {
+    if (m.nome < nome) await db.exec(m.sql);
+  }
+  return db;
 }
 
 /** Cria uma usuária em auth.users (como superusuário) e devolve o id dela. */

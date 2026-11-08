@@ -381,6 +381,36 @@ describe('cobrança da sessão', () => {
       expect(screen.queryByText(/^Pendente/)).not.toBeInTheDocument();
     });
 
+    const doMes = (valorCentavos: number) =>
+      pagamentoExemplo({ referencia: 'mes', mesReferencia: '2026-11-01', sessaoIds: [], valorCentavos });
+
+    it('mês já pago por inteiro: "Paga na mensalidade de novembro de 2026", não "Entra na mensalidade"', async () => {
+      abrirCobranca({ paciente: { formaCobranca: 'mensal' }, sessao: feita, pagamentos: [doMes(20000)] });
+
+      expect(await screen.findByText('Paga na mensalidade de novembro de 2026')).toBeInTheDocument();
+      expect(screen.queryByText(/^Entra na mensalidade/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Registrar pagamento' })).not.toBeInTheDocument();
+    });
+
+    it('mês pago antes desta sessão (ainda falta a diferença): continua "Entra na mensalidade"', async () => {
+      abrirCobranca({
+        paciente: { formaCobranca: 'mensal' },
+        sessao: feita,
+        pagamentos: [doMes(10000)],
+      });
+
+      expect(await screen.findByText('Entra na mensalidade de novembro de 2026')).toBeInTheDocument();
+      expect(screen.queryByText(/^Paga na mensalidade/)).not.toBeInTheDocument();
+    });
+
+    it('quem passou a pagar por sessão depois de pagar o mês: a sessão desse mês é da mensalidade, não "Pendente"', async () => {
+      abrirCobranca({ paciente: { formaCobranca: 'por_sessao' }, sessao: feita, pagamentos: [doMes(20000)] });
+
+      expect(await screen.findByText('Paga na mensalidade de novembro de 2026')).toBeInTheDocument();
+      expect(screen.queryByText(/^Pendente/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Registrar pagamento' })).not.toBeInTheDocument();
+    });
+
     it('o mês da mensalidade é o da data LOCAL: 30/11 às 23:30 em São Paulo ainda é novembro (em UTC já é dezembro)', async () => {
       abrirCobranca({
         paciente: { formaCobranca: 'mensal' },
@@ -402,20 +432,61 @@ describe('cobrança da sessão', () => {
       expect(screen.queryByRole('button', { name: 'Registrar pagamento' })).not.toBeInTheDocument();
     });
 
+    const SEM_COBRANCA =
+      'Sem cobrança: o valor desta sessão está em R$ 0,00. Para cobrar, ajuste o valor na ficha do paciente, toque em Voltar para Agendada e marque de novo.';
+
+    it.each([
+      ['de quem paga por sessão', { paciente: { valorSessaoCentavos: 0 }, sessao: { situacao: 'compareceu', valorCentavos: 0 } }],
+      [
+        'de quem paga por mês',
+        { paciente: { formaCobranca: 'mensal', valorSessaoCentavos: 0 }, sessao: { situacao: 'falta_sem_aviso', valorCentavos: 0 } },
+      ],
+      [
+        'da falta sem aviso na avaliação',
+        {
+          paciente: { tipo: 'avaliacao', valorSessaoCentavos: 0 },
+          sessao: { tipo: 'avaliacao', situacao: 'falta_sem_aviso', valorCentavos: 0 },
+        },
+      ],
+    ] as const)('sessão cobrada de valor zero %s: avisa que não há cobrança e como corrigir', async (_nome, caso) => {
+      abrirCobranca({ paciente: caso.paciente, sessao: caso.sessao });
+
+      expect(await screen.findByText(SEM_COBRANCA)).toBeInTheDocument();
+      for (const texto of [/^Pendente/, /^Pago em/, /^Entra na mensalidade/, /^Paga na mensalidade/]) {
+        expect(screen.queryByText(texto)).not.toBeInTheDocument();
+      }
+      expect(screen.queryByRole('button', { name: 'Registrar pagamento' })).not.toBeInTheDocument();
+    });
+
+    it('"Voltar para Agendada" e marcar de novo, com o valor já corrigido, passa a cobrar a sessão', async () => {
+      const { usuaria, repositorio } = abrirCobranca({ sessao: { situacao: 'compareceu', valorCentavos: 0 } });
+      await screen.findByText(SEM_COBRANCA);
+
+      await usuaria.click(screen.getByRole('button', { name: 'Voltar para Agendada' }));
+      await waitFor(() => expect(screen.queryByText(SEM_COBRANCA)).not.toBeInTheDocument());
+      await usuaria.click(screen.getByRole('button', { name: 'Compareceu' }));
+
+      // O paciente da fábrica vale R$ 200,00.
+      expect(await screen.findByText('Pendente · R$ 200,00')).toBeInTheDocument();
+      expect((await sessaoGravada(repositorio))?.valorCentavos).toBe(20000);
+    });
+
     it.each([
       ['ainda agendada (sem valor)', { paciente: {}, sessao: {} }],
       ['sem valor', { paciente: {}, sessao: { situacao: 'compareceu', valorCentavos: null } }],
-      ['de valor zero', { paciente: {}, sessao: { situacao: 'compareceu', valorCentavos: 0 } }],
-      ['mensal de valor zero', { paciente: { formaCobranca: 'mensal' }, sessao: { situacao: 'compareceu', valorCentavos: 0 } }],
       ['faltou com aviso', { paciente: {}, sessao: { situacao: 'falta_com_aviso', valorCentavos: null } }],
       ['de avaliação ainda agendada', { paciente: { tipo: 'avaliacao' }, sessao: { tipo: 'avaliacao' } }],
+      [
+        'com aviso de quem tem valor zero',
+        { paciente: { valorSessaoCentavos: 0 }, sessao: { situacao: 'falta_com_aviso', valorCentavos: null } },
+      ],
     ] as const)('sessão %s: não diz nada de cobrança', async (_nome, caso) => {
       abrirCobranca({ paciente: caso.paciente, sessao: caso.sessao });
 
       await screen.findByText('terça-feira, 03/11 · 14:00 · 50 min');
       // Dá tempo de a ficha, as sessões e os pagamentos chegarem.
       await waitFor(() => expect(screen.getByLabelText('Observação')).toBeInTheDocument());
-      for (const texto of [/^Pendente/, /^Pago em/, /^Entra na mensalidade/, /^Incluída no pacote/]) {
+      for (const texto of [/^Pendente/, /^Pago em/, /^Entra na mensalidade/, /^Paga na mensalidade/, /^Incluída no pacote/, /^Sem cobrança/]) {
         expect(screen.queryByText(texto)).not.toBeInTheDocument();
       }
       expect(screen.queryByRole('button', { name: 'Registrar pagamento' })).not.toBeInTheDocument();

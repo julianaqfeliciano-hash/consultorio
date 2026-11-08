@@ -34,14 +34,29 @@ describe('FormularioPagamento', () => {
       const { aoEnviar, usuaria } = montar();
       const data = screen.getByLabelText('Data');
       await usuaria.clear(data);
-      await usuaria.type(data, '2026-11-03');
+      await usuaria.type(data, '2026-11-01');
       await usuaria.click(screen.getByRole('radio', { name: 'Dinheiro' }));
       await usuaria.type(screen.getByLabelText('Observação'), '  Pagou a mãe.  ');
 
       await usuaria.click(screen.getByRole('button', { name: 'Confirmar pagamento' }));
 
       expect(aoEnviar).toHaveBeenCalledTimes(1);
-      expect(aoEnviar).toHaveBeenCalledWith({ data: '2026-11-03', forma: 'dinheiro', observacao: 'Pagou a mãe.' });
+      expect(aoEnviar).toHaveBeenCalledWith({ data: '2026-11-01', forma: 'dinheiro', observacao: 'Pagou a mãe.' });
+    });
+
+    it('uma data depois de hoje é recusada no campo e não é enviada', async () => {
+      const { aoEnviar, usuaria } = montar();
+      const data = screen.getByLabelText('Data');
+      // O calendário do aparelho já não oferece dias depois de hoje.
+      expect(data).toHaveAttribute('max', '2026-11-02');
+      await usuaria.clear(data);
+      await usuaria.type(data, '2062-11-02');
+
+      await usuaria.click(screen.getByRole('button', { name: 'Confirmar pagamento' }));
+
+      expect(screen.getByText('A data do pagamento não pode ser depois de hoje.')).toBeInTheDocument();
+      expect(data).toBeInvalid();
+      expect(aoEnviar).not.toHaveBeenCalled();
     });
 
     it('sem a data, avisa e não envia', async () => {
@@ -104,6 +119,15 @@ describe('FormularioPagamento', () => {
     expect(botao).toBeDisabled();
     await usuaria.click(botao);
     expect(aoEnviar).not.toHaveBeenCalled();
+  });
+
+  it('enquanto envia, "Cancelar" também fica desligado (fechar no meio deixaria registrar de novo)', async () => {
+    const { aoCancelar, usuaria } = montar({ enviando: true });
+
+    const cancelar = screen.getByRole('button', { name: 'Cancelar' });
+    expect(cancelar).toBeDisabled();
+    await usuaria.click(cancelar);
+    expect(aoCancelar).not.toHaveBeenCalled();
   });
 
   it('enquanto envia, enviar o formulário de outro jeito (Enter num campo) também não entrega nada', () => {

@@ -25,9 +25,18 @@ export interface DadosPagamento {
 
 export type ErrosPagamento = Partial<Record<'data' | 'valor', string>>;
 
-export function validarPagamento(v: ValoresPagamento, valorEditavel: boolean): Resultado<ErrosPagamento, DadosPagamento> {
+/** O dinheiro que entrou é o de um dia que já chegou: uma data no futuro é engano (um ano digitado errado). */
+export const ERRO_DATA_DEPOIS_DE_HOJE = 'A data do pagamento não pode ser depois de hoje.';
+
+/** `hoje` é a data local de hoje ('YYYY-MM-DD'): a data do pagamento não pode passar dela. */
+export function validarPagamento(
+  v: ValoresPagamento,
+  valorEditavel: boolean,
+  hoje: DataISO,
+): Resultado<ErrosPagamento, DadosPagamento> {
   const erros: ErrosPagamento = {};
   if (!/^\d{4}-\d{2}-\d{2}$/.test(v.data)) erros.data = 'Informe a data do pagamento.';
+  else if (v.data > hoje) erros.data = ERRO_DATA_DEPOIS_DE_HOJE;
 
   let valorCentavos: number | undefined;
   if (valorEditavel) {

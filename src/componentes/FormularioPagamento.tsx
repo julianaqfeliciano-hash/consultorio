@@ -22,7 +22,7 @@ type Valor =
 type FormularioPagamentoProps = Valor & {
   /** Título do formulário (também o nome dele para leitores de tela). */
   titulo?: string;
-  /** Gravando: o botão fica desligado. */
+  /** Gravando: "Confirmar pagamento" e "Cancelar" ficam desligados, e um segundo envio é ignorado. */
   enviando?: boolean;
   /** Recado de erro de quem gravou (a recusa do serviço, por exemplo). */
   erro?: string;
@@ -45,8 +45,9 @@ export function FormularioPagamento({
   aoCancelar,
 }: FormularioPagamentoProps) {
   const idTitulo = useId();
+  const hoje = hojeISO();
   const [valores, setValores] = useState<ValoresPagamento>(() => ({
-    data: hojeISO(),
+    data: hoje,
     forma: 'pix',
     observacao: '',
     valor: valorCentavos === undefined ? '' : centavosParaCampo(valorCentavos),
@@ -61,7 +62,7 @@ export function FormularioPagamento({
     evento.preventDefault();
     // O botão já fica desligado, mas Enter num campo também envia: quem grava não pode receber o pedido duas vezes.
     if (enviando) return;
-    const lido = validarPagamento(valores, valorEditavel);
+    const lido = validarPagamento(valores, valorEditavel, hojeISO());
     setErros(lido.erros);
     if (lido.dados !== null) aoEnviar(lido.dados);
   }
@@ -89,6 +90,7 @@ export function FormularioPagamento({
       <Campo
         rotulo="Data"
         type="date"
+        max={hoje}
         value={valores.data}
         onChange={(e) => mudar({ data: e.target.value })}
         erro={erros.data}
@@ -100,7 +102,8 @@ export function FormularioPagamento({
         <Botao type="submit" disabled={enviando}>
           {enviando ? 'Registrando…' : 'Confirmar pagamento'}
         </Botao>
-        <Botao variante="secundario" onClick={aoCancelar}>
+        {/* Fechar com o pagamento a caminho deixaria abrir o formulário de novo e registrar duas vezes. */}
+        <Botao variante="secundario" disabled={enviando} onClick={aoCancelar}>
           Cancelar
         </Botao>
       </div>

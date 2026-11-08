@@ -17,9 +17,9 @@ import type {
 import { chaveOcorrencia } from '../regras/agenda';
 import { dataLocal, entre } from '../regras/datas';
 import {
-  ERRO_MES_JA_PAGO,
   ERRO_SESSAO_JA_PAGA,
   ERRO_SESSAO_PAGA_NAO_SAI,
+  RecusaDoRepositorio,
   type FichaPaciente,
   type Rascunho,
   type Repositorio,
@@ -53,8 +53,8 @@ const DIA_1 = /^\d{4}-\d{2}-01$/;
  * Repositório que guarda tudo em Maps, sem rede. Imita o banco onde isso muda o
  * resultado: ids novos com `crypto.randomUUID()`, uma sessão por ocorrência de
  * horário fixo, `on delete set null` ao apagar parceiro ou sessão de destino e, nos
- * pagamentos, as mesmas regras (uma sessão só é paga uma vez, um mês só é pago uma vez,
- * sessão paga não se apaga).
+ * pagamentos, as mesmas regras (uma sessão só é paga uma vez, sessão paga não se apaga; um
+ * mês pode ter vários pagamentos, como no banco).
  * Tudo que entra e sai é copiado, então quem chama nunca altera o estado guardado.
  */
 export function criarRepositorioMemoria(semente: SementeMemoria = {}): Repositorio {
@@ -267,7 +267,7 @@ export function criarRepositorioMemoria(semente: SementeMemoria = {}): Repositor
       const apagar = new Set(ids);
       // Como o `on delete restrict` do banco: um lote com sessão paga não apaga nada.
       const pagas = sessoesPagas();
-      if ([...apagar].some((id) => pagas.has(id))) throw new Error(ERRO_SESSAO_PAGA_NAO_SAI);
+      if ([...apagar].some((id) => pagas.has(id))) throw new RecusaDoRepositorio(ERRO_SESSAO_PAGA_NAO_SAI);
       for (const id of apagar) sessoes.delete(id);
       for (const s of sessoes.values()) {
         if (s.remarcadaPara !== null && apagar.has(s.remarcadaPara)) s.remarcadaPara = null;
@@ -294,16 +294,8 @@ export function criarRepositorioMemoria(semente: SementeMemoria = {}): Repositor
       for (const id of sessaoIds) {
         if (!sessoes.has(id)) throw new Error(`Sessão não encontrada: ${id}`);
         // Já paga, ou repetida na mesma chamada (a chave primária de pagamento_sessoes).
-        if (pagas.has(id)) throw new Error(ERRO_SESSAO_JA_PAGA);
+        if (pagas.has(id)) throw new RecusaDoRepositorio(ERRO_SESSAO_JA_PAGA);
         pagas.add(id);
-      }
-      if (
-        novo.referencia === 'mes' &&
-        [...pagamentos.values()].some(
-          (p) => p.referencia === 'mes' && p.pacienteId === novo.pacienteId && p.mesReferencia === novo.mesReferencia,
-        )
-      ) {
-        throw new Error(ERRO_MES_JA_PAGO);
       }
       // Tudo conferido: só agora grava, então a falha nunca deixa pagamento pela metade.
       return gravar(pagamentos, { ...copia(novo), id: crypto.randomUUID(), sessaoIds });

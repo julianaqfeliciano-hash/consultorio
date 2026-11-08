@@ -1,5 +1,7 @@
 import { screen, within } from '@testing-library/react';
-import { abrirFicha, MARIA, PEDRO, usarHojeFixo } from '../../testes/ficha';
+import { criarRepositorioMemoria } from '../../dados/memoria';
+import { sementeDemo } from '../../dados/semente-demo';
+import { abrirFicha, HOJE, LUCAS, MARIA, PEDRO, usarHojeFixo } from '../../testes/ficha';
 
 usarHojeFixo();
 
@@ -60,5 +62,50 @@ describe('SecaoCobranca', () => {
     const cobranca = await screen.findByRole('region', { name: 'Cobrança' });
 
     expect(within(cobranca).getByText(/pacote/)).toBeInTheDocument();
+  });
+
+  describe('valor da sessão em R$ 0,00', () => {
+    const SEM_COBRANCA_PSICOTERAPIA = 'O valor da sessão está em R$ 0,00: as sessões deste paciente não são cobradas.';
+    const SEM_COBRANCA_AVALIACAO = 'O valor da sessão está em R$ 0,00: uma falta sem aviso na avaliação não é cobrada.';
+
+    it('na psicoterapia, avisa que as sessões não são cobradas (sem interromper a leitura)', async () => {
+      abrirFicha(LUCAS);
+      const cobranca = await screen.findByRole('region', { name: 'Cobrança' });
+
+      const aviso = within(cobranca).getByText(SEM_COBRANCA_PSICOTERAPIA);
+      expect(aviso).toHaveAttribute('role', 'status');
+    });
+
+    it('na avaliação, avisa que a falta sem aviso não é cobrada', async () => {
+      const semente = sementeDemo(HOJE);
+      const repositorio = criarRepositorioMemoria({
+        ...semente,
+        pacientes: semente.pacientes.map((p) => (p.id === PEDRO ? { ...p, valorSessaoCentavos: 0 } : p)),
+      });
+      abrirFicha(PEDRO, repositorio);
+      const cobranca = await screen.findByRole('region', { name: 'Cobrança' });
+
+      expect(within(cobranca).getByText(SEM_COBRANCA_AVALIACAO)).toBeInTheDocument();
+      expect(within(cobranca).queryByText(SEM_COBRANCA_PSICOTERAPIA)).not.toBeInTheDocument();
+    });
+
+    it('com valor, não avisa nada; e o aviso some depois de salvar um valor', async () => {
+      const { usuaria } = abrirFicha(LUCAS);
+      const cobranca = await screen.findByRole('region', { name: 'Cobrança' });
+      expect(within(cobranca).getByText(SEM_COBRANCA_PSICOTERAPIA)).toBeInTheDocument();
+
+      await usuaria.clear(within(cobranca).getByLabelText('Valor da sessão'));
+      await usuaria.type(within(cobranca).getByLabelText('Valor da sessão'), '150');
+      await usuaria.click(within(cobranca).getByRole('button', { name: 'Salvar cobrança' }));
+
+      await within(cobranca).findByText('Cobrança salva.');
+      expect(within(cobranca).queryByText(/^O valor da sessão está em R\$ 0,00/)).not.toBeInTheDocument();
+    });
+
+    it('quem tem valor (Maria) não vê o aviso', async () => {
+      abrirFicha(MARIA);
+      const cobranca = await screen.findByRole('region', { name: 'Cobrança' });
+      expect(within(cobranca).queryByText(/^O valor da sessão está em R\$ 0,00/)).not.toBeInTheDocument();
+    });
   });
 });

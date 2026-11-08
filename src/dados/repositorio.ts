@@ -17,8 +17,18 @@ import type {
 
 /** Mensagens que as duas implementações dão quando o banco (ou a memória) recusa um pagamento. */
 export const ERRO_SESSAO_JA_PAGA = 'Esta sessão já foi paga.';
-export const ERRO_MES_JA_PAGO = 'Este mês já foi pago.';
 export const ERRO_SESSAO_PAGA_NAO_SAI = 'Esta sessão já foi paga e não pode ser removida.';
+
+/**
+ * Recusa de uma regra dos dados (sessão já paga, sessão paga que não sai…). A mensagem já é para ela ler, em
+ * português: a interface a mostra do jeito que está, em vez de um "tente de novo" (tentar de novo daria o mesmo).
+ */
+export class RecusaDoRepositorio extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'RecusaDoRepositorio';
+  }
+}
 
 /** Registro a salvar: sem `id` cria um novo; com `id` atualiza (ou cria com esse id). */
 export type Rascunho<T extends { id: Id }> = Omit<T, 'id'> & { id?: Id };
@@ -87,7 +97,7 @@ export interface Repositorio {
   listarSessoesCobradas(): Promise<SessaoComPaciente[]>;
   /**
    * Ids que não existem são ignorados. Rejeita (sem apagar nenhuma) quando alguma das
-   * sessões está ligada a um pagamento: primeiro se remove o pagamento.
+   * sessões está ligada a um pagamento, com `RecusaDoRepositorio`: primeiro se remove o pagamento.
    */
   removerSessoes(ids: Id[]): Promise<void>;
 
@@ -95,12 +105,13 @@ export interface Repositorio {
   listarPagamentos(filtro?: FiltroPagamentos): Promise<Pagamento[]>;
   /**
    * Atômico: ou grava o pagamento e as ligações com as sessões, ou não grava nada.
-   * Rejeita sessão já paga ("Esta sessão já foi paga.") e mês já pago ("Este mês já foi pago.").
+   * Rejeita sessão já paga com `RecusaDoRepositorio("Esta sessão já foi paga.")`. Um mês pode ter vários
+   * pagamentos (o da diferença): quem confere se ainda falta algo é o serviço.
    * `sessaoIds` só vale quando `referencia` é 'sessoes'; nos outros jeitos de pagar é descartado.
    * O `sessaoIds` devolvido vem em ordem de id.
    */
   registrarPagamento(p: NovoPagamento): Promise<Pagamento>;
-  /** Libera as sessões e o mês que ele quitava. Id que não existe não dá erro. */
+  /** Libera as sessões que ele quitava (ou desconta o que pagou do mês). Id que não existe não dá erro. */
   removerPagamento(id: Id): Promise<void>;
 
   /** Em ordem de início. */

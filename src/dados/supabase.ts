@@ -33,9 +33,9 @@ import {
   type LinhaSessao,
 } from './mapeamento';
 import {
-  ERRO_MES_JA_PAGO,
   ERRO_SESSAO_JA_PAGA,
   ERRO_SESSAO_PAGA_NAO_SAI,
+  RecusaDoRepositorio,
   type FichaPaciente,
   type Repositorio,
   type SessaoComPaciente,
@@ -44,7 +44,10 @@ import {
 /** Quantos ids vão de uma vez num filtro `in (...)`, para a URL não ficar enorme. */
 const IDS_POR_PEDIDO = 100;
 
-/** O PostgREST entrega no máximo 1000 linhas por pedido (limite do projeto Supabase). */
+/**
+ * Quantas linhas cada pedido pede. O PostgREST entrega no máximo `max_rows` por pedido (1000 no Supabase, mas
+ * dá para mudar no painel), então uma página pode vir menor que isso sem ser a última.
+ */
 const LINHAS_POR_PAGINA = 1000;
 
 const FORMATO_DATA = /^\d{4}-\d{2}-\d{2}$/;
@@ -62,21 +65,23 @@ interface Resposta {
 }
 
 /**
- * O erro que a interface vê. Os erros das regras de pagamento ganham texto em português
- * (o nome da restrição vem na mensagem do Postgres); os outros seguem com a mensagem do banco.
+ * O erro que a interface vê. As recusas das regras de pagamento viram `RecusaDoRepositorio` com texto em
+ * português (o nome da restrição vem na mensagem do Postgres), e a de uma função nossa que levanta uma exceção
+ * (`raise exception`, código P0001) chega com o texto dela. Os outros seguem como erro comum, com a mensagem do
+ * banco (a interface diz "tente de novo").
  */
 export function traduzirErroDoBanco(erro: ErroDoBanco): Error {
   const texto = `${erro.message} ${erro.details ?? ''}`;
-  let mensagem = erro.message;
-  if (erro.code === '23505') {
-    // unique violation: o índice do mês, ou o unique/chave primária das ligações com as sessões.
-    if (texto.includes('pagamentos_um_por_paciente_e_mes')) mensagem = ERRO_MES_JA_PAGO;
-    else if (texto.includes('pagamento_sessoes')) mensagem = ERRO_SESSAO_JA_PAGA;
-  } else if (erro.code === '23001' && texto.includes('pagamento_sessoes')) {
-    // restrict violation: apagar uma sessão que está ligada a um pagamento.
-    mensagem = ERRO_SESSAO_PAGA_NAO_SAI;
+  // unique violation: o unique de sessao_id ou a chave primária das ligações com as sessões.
+  if (erro.code === '23505' && texto.includes('pagamento_sessoes')) {
+    return new RecusaDoRepositorio(ERRO_SESSAO_JA_PAGA, { cause: erro });
   }
-  return new Error(mensagem, { cause: erro });
+  // restrict violation: apagar uma sessão que está ligada a um pagamento.
+  if (erro.code === '23001' && texto.includes('pagamento_sessoes')) {
+    return new RecusaDoRepositorio(ERRO_SESSAO_PAGA_NAO_SAI, { cause: erro });
+  }
+  if (erro.code === 'P0001') return new RecusaDoRepositorio(erro.message, { cause: erro });
+  return new Error(erro.message, { cause: erro });
 }
 
 /** Devolve os dados da resposta ou lança o erro do Supabase. */
@@ -87,16 +92,19 @@ function dados<T>(resposta: Resposta): T {
 
 /**
  * Lê uma consulta que pode passar de 1000 linhas, página por página. `fabrica(de, ate)`
- * monta a consulta já com `.range(de, ate)` (os dois limites incluídos); a última página é a
- * que vem com menos de 1000 linhas. A ordenação da consulta precisa ser total (termine em
- * `id`), senão uma linha pode se repetir ou faltar na virada de página.
+ * monta a consulta já com `.range(de, ate)` (os dois limites incluídos). Cada pedido começa
+ * onde o anterior parou (avança o tanto de linhas que de fato veio, que pode ser menos que o
+ * pedido quando o projeto limita as linhas por pedido), e a leitura acaba na primeira página
+ * vazia. A ordenação da consulta precisa ser total (termine em `id`), senão uma linha pode se
+ * repetir ou faltar na virada de página.
  */
 export async function buscarTodas<T>(fabrica: (de: number, ate: number) => PromiseLike<Resposta>): Promise<T[]> {
   const linhas: T[] = [];
-  for (let de = 0; ; de += LINHAS_POR_PAGINA) {
+  for (;;) {
+    const de = linhas.length;
     const pagina = dados<T[]>(await fabrica(de, de + LINHAS_POR_PAGINA - 1));
+    if (pagina.length === 0) return linhas;
     linhas.push(...pagina);
-    if (pagina.length < LINHAS_POR_PAGINA) return linhas;
   }
 }
 
@@ -350,7 +358,7 @@ export function criarRepositorioSupabase(cliente: SupabaseClient): Repositorio {
       return linhaParaPagamento(linha);
     },
     async removerPagamento(id) {
-      // pagamento_sessoes.pagamento_id é "on delete cascade": as sessões e o mês ficam livres.
+      // pagamento_sessoes.pagamento_id é "on delete cascade": as sessões ficam livres (e o mês volta a dever o valor).
       dados(await cliente.from('pagamentos').delete().eq('id', id));
     },
 

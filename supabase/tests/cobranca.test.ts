@@ -31,8 +31,10 @@ import {
   type LinhaResponsavel,
   type LinhaSessao,
 } from '../../src/dados/mapeamento.ts';
+import { RecusaDoRepositorio } from '../../src/dados/repositorio.ts';
+import { traduzirErroDoBanco } from '../../src/dados/supabase.ts';
 import { CONFIGURACOES_PADRAO } from '../../src/dominio/padroes.ts';
-import { comoAnonimo, comoUsuario, criarBanco, criarUsuario } from './banco.ts';
+import { comoAnonimo, comoUsuario, criarBanco, criarBancoAntesDe, criarUsuario, migracoes } from './banco.ts';
 
 const TABELAS_NOVAS = ['pagamento_sessoes', 'pagamentos'];
 
@@ -345,31 +347,72 @@ describe('registrar_pagamento', () => {
   });
 });
 
-describe('regras de integridade da cobrança', () => {
-  it('dois pagamentos do mesmo mês para o mesmo paciente são rejeitados', async () => {
-    const a = await criarUsuario(db);
-    await comoUsuario(db, a);
-    const paciente = await novoPaciente();
-    await registrar({ pacienteId: paciente, referencia: 'mes', mesReferencia: '2026-10-01' });
+/** O erro de verdade do Postgres, do jeito que o PostgREST o entrega ao app (`details`, não `detail`). */
+async function erroDoBanco(operacao: Promise<unknown>): Promise<{ code?: string; message: string; details: string | null }> {
+  try {
+    await operacao;
+  } catch (e) {
+    const erro = e as { code?: string; message: string; detail?: string };
+    return { code: erro.code, message: erro.message, details: erro.detail ?? null };
+  }
+  throw new Error('Era para o banco recusar.');
+}
 
-    await expect(
-      registrar({ pacienteId: paciente, referencia: 'mes', mesReferencia: '2026-10-01' }),
-    ).rejects.toThrow(/duplicate key|unique constraint/);
-    expect(await contar('pagamentos')).toBe(1);
+describe('as recusas do banco chegam em português (traduzirErroDoBanco com os erros reais)', () => {
+  it('pagar de novo uma sessão já paga (unique) e a mesma sessão duas vezes (chave primária)', async () => {
+    await comoUsuario(db, await criarUsuario(db));
+    const paciente = await novoPaciente();
+    const sessao = await novaSessao(paciente);
+    const outra = await novaSessao(paciente);
+    await registrar({ pacienteId: paciente, sessaoIds: [sessao] });
+
+    for (const operacao of [
+      registrar({ pacienteId: paciente, sessaoIds: [sessao] }),
+      registrar({ pacienteId: paciente, sessaoIds: [outra, outra] }),
+    ]) {
+      const traduzido = traduzirErroDoBanco(await erroDoBanco(operacao));
+      expect(traduzido).toBeInstanceOf(RecusaDoRepositorio);
+      expect(traduzido.message).toBe('Esta sessão já foi paga.');
+    }
   });
 
-  it('a unicidade do mês vale por paciente e só para pagamento do mês', async () => {
+  it('apagar uma sessão paga (restrict)', async () => {
+    await comoUsuario(db, await criarUsuario(db));
+    const paciente = await novoPaciente();
+    const sessao = await novaSessao(paciente);
+    await registrar({ pacienteId: paciente, sessaoIds: [sessao] });
+
+    const traduzido = traduzirErroDoBanco(await erroDoBanco(db.query('delete from sessoes where id = $1', [sessao])));
+    expect(traduzido).toBeInstanceOf(RecusaDoRepositorio);
+    expect(traduzido.message).toBe('Esta sessão já foi paga e não pode ser removida.');
+  });
+});
+
+describe('regras de integridade da cobrança', () => {
+  it('o mesmo mês do mesmo paciente pode ter mais de um pagamento (o da diferença), como as parcelas', async () => {
     const a = await criarUsuario(db);
     await comoUsuario(db, a);
     const ana = await novoPaciente('Ana');
     const beto = await novoPaciente('Beto');
-    await registrar({ pacienteId: ana, referencia: 'mes', mesReferencia: '2026-10-01' });
-    // Outro mês, outro paciente e pagamentos de sessões (sem mês) convivem.
+    await registrar({ pacienteId: ana, referencia: 'mes', mesReferencia: '2026-10-01', valorCentavos: 60000 });
+    await registrar({ pacienteId: ana, referencia: 'mes', mesReferencia: '2026-10-01', valorCentavos: 20000 });
+    // Outro mês, outro paciente e pagamentos de sessões (sem mês) também convivem.
     await registrar({ pacienteId: ana, referencia: 'mes', mesReferencia: '2026-11-01' });
     await registrar({ pacienteId: beto, referencia: 'mes', mesReferencia: '2026-10-01' });
     await registrar({ pacienteId: ana, sessaoIds: [await novaSessao(ana)] });
-    await registrar({ pacienteId: ana, sessaoIds: [await novaSessao(ana)] });
     expect(await contar('pagamentos')).toBe(5);
+
+    const { rows } = await db.query<{ total: number }>(
+      `select sum(valor_centavos)::int as total from pagamentos
+       where paciente_id = $1 and referencia = 'mes' and mes_referencia = '2026-10-01'`,
+      [ana],
+    );
+    expect(rows).toEqual([{ total: 80000 }]);
+  });
+
+  it('não existe mais o índice de um pagamento por mês', async () => {
+    const r = await db.query(`select indexname from pg_indexes where indexname = 'pagamentos_um_por_paciente_e_mes'`);
+    expect(r.rows).toEqual([]);
   });
 
   it('pagamento do mês sem mês de referência é rejeitado', async () => {
@@ -547,6 +590,82 @@ describe('regras de integridade da cobrança', () => {
     expect(await contar('pagamentos')).toBe(2);
     expect(await contar('pagamento_sessoes')).toBe(1);
   });
+});
+
+describe('sessões marcadas antes da cobrança (Etapas 1 e 2) ganham o valor ao rodar a migração', () => {
+  const COBRANCA = '20261101120000_cobranca.sql';
+
+  it('a sessão cobrada fica com o valor de hoje do paciente; as outras continuam sem valor', async () => {
+    const antigo = await criarBancoAntesDe(COBRANCA);
+    try {
+      // Os dados de quem já usava a agenda: só a migração base, ainda sem a coluna valor_centavos.
+      const usuaria = await criarUsuario(antigo);
+      await comoUsuario(antigo, usuaria);
+      const paciente = async (nome: string, tipo: string, valor: number) =>
+        (
+          await antigo.query<{ id: string }>(
+            `insert into pacientes (nome, tipo, forma_cobranca, valor_sessao_centavos)
+             values ($1, $2, 'mensal', $3) returning id`,
+            [nome, tipo, valor],
+          )
+        ).rows[0].id;
+      const ana = await paciente('Ana', 'psicoterapia', 20000);
+      const pedro = await paciente('Pedro', 'avaliacao', 16000);
+      const ze = await paciente('Zé', 'psicoterapia', 0);
+      const avaliacao = (
+        await antigo.query<{ id: string }>(
+          `insert into avaliacoes (paciente_id, inicio, sessoes_previstas) values ($1, '2026-10-01', 10) returning id`,
+          [pedro],
+        )
+      ).rows[0].id;
+      const sessao = async (rotulo: string, pacienteId: string, tipo: string, situacao: string, familiar = false) => {
+        await antigo.query(
+          `insert into sessoes (paciente_id, inicio, duracao_min, tipo, origem, situacao, acompanhamento_familiar, avaliacao_id, observacao)
+           values ($1, '2026-10-06T17:00:00Z', 50, $2, 'avulsa', $3, $4, $5, $6)`,
+          [pacienteId, tipo, situacao, familiar, tipo === 'avaliacao' ? avaliacao : null, rotulo],
+        );
+      };
+      for (const situacao of ['compareceu', 'falta_sem_aviso', 'falta_com_aviso', 'cancelada', 'agendada', 'remarcada']) {
+        await sessao(`ana ${situacao}`, ana, 'psicoterapia', situacao);
+        await sessao(`pedro ${situacao}`, pedro, 'avaliacao', situacao);
+      }
+      await sessao('ana familiar compareceu', ana, 'psicoterapia', 'compareceu', true);
+      // Psicoterapia de quem hoje está em avaliação: vale o tipo da sessão, como em valorCobradoDaSessao.
+      await sessao('pedro psicoterapia compareceu', pedro, 'psicoterapia', 'compareceu');
+      await sessao('zé compareceu', ze, 'psicoterapia', 'compareceu');
+
+      // Ela cola o arquivo no SQL Editor (como dona das tabelas, fora do RLS).
+      await antigo.exec('reset role');
+      const cobranca = migracoes().find((m) => m.nome === COBRANCA);
+      if (cobranca === undefined) throw new Error(`migração não encontrada: ${COBRANCA}`);
+      await antigo.exec(cobranca.sql);
+
+      const { rows } = await antigo.query<{ observacao: string; valor_centavos: number | null }>(
+        `select observacao, valor_centavos from sessoes order by observacao`,
+      );
+      expect(Object.fromEntries(rows.map((l) => [l.observacao, l.valor_centavos]))).toEqual({
+        'ana agendada': null,
+        'ana cancelada': null,
+        'ana compareceu': 20000,
+        'ana falta_com_aviso': null,
+        'ana falta_sem_aviso': 20000,
+        'ana familiar compareceu': 20000,
+        'ana remarcada': null,
+        // Na avaliação o comparecimento é do pacote; só a falta sem aviso é cobrada à parte (§6.4).
+        'pedro agendada': null,
+        'pedro cancelada': null,
+        'pedro compareceu': null,
+        'pedro falta_com_aviso': null,
+        'pedro falta_sem_aviso': 16000,
+        'pedro psicoterapia compareceu': 16000,
+        'pedro remarcada': null,
+        // Valor em branco (R$ 0,00): fica 0, e o painel da sessão avisa "Sem cobrança".
+        'zé compareceu': 0,
+      });
+    } finally {
+      await antigo.close();
+    }
+  }, 60_000);
 });
 
 describe('colunas novas de valores', () => {

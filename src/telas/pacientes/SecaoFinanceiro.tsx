@@ -17,7 +17,7 @@ import {
 import { useSessoesDoPaciente } from '../../dados/useFicha';
 import { ROTULO_FORMA, ROTULO_TIPO, tipoVisual } from '../../dominio/rotulos';
 import type { DataISO, Id, Pagamento, Sessao } from '../../dominio/tipos';
-import { mesPorExtenso } from '../../regras/cobranca';
+import { mesPorExtenso, type MesCobranca } from '../../regras/cobranca';
 import { dataLocal, formatarData } from '../../regras/datas';
 import { formatarReais } from '../../regras/dinheiro';
 import type { DadosPagamento } from '../../regras/formulariosCobranca';
@@ -28,7 +28,8 @@ type Formulario = { tipo: 'sessoes' } | { tipo: 'mes'; mes: DataISO } | { tipo: 
 /** O que o pagamento quita; o resto do pedido (paciente, data, forma e observação) é comum aos três. */
 type Destino =
   | { referencia: 'sessoes'; sessaoIds: Id[] }
-  | { referencia: 'mes'; mes: DataISO }
+  /** `valorCentavos` é o que a tela mostrou: o serviço recusa se o que falta do mês mudou desde então. */
+  | { referencia: 'mes'; mes: DataISO; valorCentavos: number }
   | { referencia: 'avaliacao'; valorCentavos: number };
 
 const soma = (valores: number[]): number => valores.reduce((total, v) => total + v, 0);
@@ -60,6 +61,18 @@ function descreverPagamento(p: Pagamento, sessoes: Sessao[]): string {
       return `${dias.length === 1 ? 'Sessão' : 'Sessões'} de ${juntas}`;
     }
   }
+}
+
+/**
+ * O recado de um mês cujo total mudou depois do pagamento, dizendo quem deve a quem: "Falta receber" quando o total
+ * subiu (sessão marcada depois do pagamento) e "Pago a mais" quando caiu. `null` quando não há diferença.
+ */
+function avisoDaDiferenca(m: MesCobranca): string | null {
+  if (m.pagamentos.length === 0 || m.diferencaCentavos === 0) return null;
+  const inicio = `O valor de ${mesPorExtenso(m.mes)} mudou depois do pagamento.`;
+  return m.diferencaCentavos > 0
+    ? `${inicio} Pago: ${formatarReais(m.pagoCentavos)}. Falta receber: ${formatarReais(m.faltaCentavos)}.`
+    : `${inicio} Pago a mais: ${formatarReais(-m.diferencaCentavos)}.`;
 }
 
 /** O que acontece quando o pagamento é removido. */
@@ -116,12 +129,15 @@ export function SecaoFinanceiro({ pacienteId }: { pacienteId: Id }) {
     ? mensagemDoErro(registrar.error, 'Não foi possível registrar o pagamento. Tente de novo.')
     : undefined;
 
+  // Com um pagamento a caminho, nada pode limpar o estado dele (reset), senão daria para registrar de novo.
   function abrir(novo: Formulario) {
+    if (registrar.isPending) return;
     registrar.reset();
     setFormulario(novo);
   }
 
   function fechar() {
+    if (registrar.isPending) return;
     registrar.reset();
     setFormulario(null);
   }
@@ -185,7 +201,7 @@ export function SecaoFinanceiro({ pacienteId }: { pacienteId: Id }) {
           ) : (
             <Botao
               variante="secundario"
-              disabled={sessoesMarcadas.length === 0}
+              disabled={sessoesMarcadas.length === 0 || registrar.isPending}
               onClick={() => abrir({ tipo: 'sessoes' })}
               className="self-start"
             >
@@ -200,36 +216,42 @@ export function SecaoFinanceiro({ pacienteId }: { pacienteId: Id }) {
           <h3 className="text-lg">Meses</h3>
           {/* Do mais recente para o mais antigo: o mês de agora fica no alto, e os pagos antigos não o empurram para baixo. */}
           <ul aria-label="Meses" className="flex flex-col gap-2">
-            {[...meses].reverse().map((m) => (
-              <li key={m.mes} className="flex flex-col gap-3 rounded-lg bg-creme px-3 py-2">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span className="font-semibold">
-                    {`${mesPorExtenso(m.mes)} · ${m.sessoes.length} ${m.sessoes.length === 1 ? 'sessão' : 'sessões'} · ${formatarReais(m.totalCentavos)}`}
-                  </span>
-                  <ChipCobranca situacao={m.situacao} />
-                </div>
-                {m.situacao === 'pago' && m.diferencaCentavos !== 0 && (
-                  <Aviso tipo="erro">
-                    {`O valor de ${mesPorExtenso(m.mes)} mudou depois do pagamento: diferença de ${formatarReais(m.diferencaCentavos)}.`}
-                  </Aviso>
-                )}
-                {m.situacao !== 'pago' &&
-                  (formulario?.tipo === 'mes' && formulario.mes === m.mes ? (
-                    <FormularioPagamento
-                      titulo={`Pagamento de ${mesPorExtenso(m.mes)}`}
-                      valorCentavos={m.totalCentavos}
-                      enviando={registrar.isPending}
-                      erro={erroAoRegistrar}
-                      aoCancelar={fechar}
-                      aoEnviar={(dados) => enviar(dados, { referencia: 'mes', mes: m.mes })}
-                    />
-                  ) : (
-                    <Botao variante="secundario" onClick={() => abrir({ tipo: 'mes', mes: m.mes })} className="self-start">
-                      Registrar pagamento do mês
-                    </Botao>
-                  ))}
-              </li>
-            ))}
+            {[...meses].reverse().map((m) => {
+              const diferenca = avisoDaDiferenca(m);
+              // Já pago antes: o que falta é a diferença.
+              const jaPago = m.pagamentos.length > 0;
+              return (
+                <li key={m.mes} className="flex flex-col gap-3 rounded-lg bg-creme px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="font-semibold">
+                      {`${mesPorExtenso(m.mes)} · ${m.sessoes.length} ${m.sessoes.length === 1 ? 'sessão' : 'sessões'} · ${formatarReais(m.totalCentavos)}`}
+                    </span>
+                    <ChipCobranca situacao={m.situacao} />
+                  </div>
+                  {diferenca !== null && <Aviso tipo="atencao">{diferenca}</Aviso>}
+                  {m.faltaCentavos > 0 &&
+                    (formulario?.tipo === 'mes' && formulario.mes === m.mes ? (
+                      <FormularioPagamento
+                        titulo={`${jaPago ? 'Diferença' : 'Pagamento'} de ${mesPorExtenso(m.mes)}`}
+                        valorCentavos={m.faltaCentavos}
+                        enviando={registrar.isPending}
+                        erro={erroAoRegistrar}
+                        aoCancelar={fechar}
+                        aoEnviar={(dados) => enviar(dados, { referencia: 'mes', mes: m.mes, valorCentavos: m.faltaCentavos })}
+                      />
+                    ) : (
+                      <Botao
+                        variante="secundario"
+                        disabled={registrar.isPending}
+                        onClick={() => abrir({ tipo: 'mes', mes: m.mes })}
+                        className="self-start"
+                      >
+                        {jaPago ? 'Registrar pagamento da diferença' : 'Registrar pagamento do mês'}
+                      </Botao>
+                    ))}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
@@ -257,7 +279,12 @@ export function SecaoFinanceiro({ pacienteId }: { pacienteId: Id }) {
                 }}
               />
             ) : (
-              <Botao variante="secundario" onClick={() => abrir({ tipo: 'avaliacao' })} className="self-start">
+              <Botao
+                variante="secundario"
+                disabled={registrar.isPending}
+                onClick={() => abrir({ tipo: 'avaliacao' })}
+                className="self-start"
+              >
                 Registrar parcela
               </Botao>
             ))}

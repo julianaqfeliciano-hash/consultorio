@@ -62,21 +62,31 @@ export function mesPorExtenso(mes: DataISO): string {
 
 export interface MesCobranca {
   mes: DataISO;
+  /** As sessões cobradas do mês que não foram pagas uma a uma, da mais antiga para a mais nova. */
   sessoes: Sessao[];
+  /** A soma dos valores guardados nessas sessões. */
   totalCentavos: number;
+  /** `pago` quando os pagamentos do mês cobrem o total; senão `devendo` (mês que já terminou) ou `em_andamento`. */
   situacao: 'em_andamento' | 'devendo' | 'pago';
-  pagamento: Pagamento | null;
-  /** Total de agora menos o que foi pago, só em mês pago: negativo se o total caiu depois do pagamento. */
+  /** Os pagamentos do mês (o primeiro e os da diferença), na ordem em que vieram. */
+  pagamentos: Pagamento[];
+  pagoCentavos: number;
+  /** O que ainda falta receber do mês: total − pago, nunca abaixo de zero. É o que conta no "a receber". */
+  faltaCentavos: number;
+  /**
+   * Total de agora menos o que foi pago, só em mês que já teve pagamento (sem pagamento é 0): positivo quando o
+   * total subiu depois do pagamento (falta receber), negativo quando caiu (foi pago a mais).
+   */
   diferencaCentavos: number;
 }
 
 export interface Pendencias {
   /** Cobradas individualmente e ainda sem pagamento, da mais antiga para a mais nova. */
   sessoesAbertas: Sessao[];
-  /** Só para quem paga por mês, do mais antigo para o mais novo. */
+  /** Os meses cobrados como mês (veja `pendenciasDoPaciente`), do mais antigo para o mais novo. */
   meses: MesCobranca[];
   avaliacao: { valorFinalCentavos: number; pagoCentavos: number; faltaCentavos: number } | null;
-  /** Sessões abertas + meses não pagos (inclusive o em andamento) + o que falta da avaliação. */
+  /** Sessões abertas + o que falta de cada mês (inclusive o em andamento) + o que falta da avaliação. */
   totalEmAbertoCentavos: number;
   /** Data do item em aberto mais antigo. */
   desde: DataISO | null;
@@ -87,42 +97,48 @@ const porInicio = (a: Sessao, b: Sessao): number => Date.parse(a.inicio) - Date.
 const menorData = (datas: DataISO[]): DataISO | null =>
   datas.reduce<DataISO | null>((menor, d) => (menor === null || d < menor ? d : menor), null);
 
-/**
- * Cobrada uma a uma: a falta sem aviso da avaliação e a psicoterapia de quem paga por sessão.
- * O resto vai para o mês (psicoterapia de quem paga por mês). O comparecimento à avaliação é do pacote.
- */
-function ehCobradaAvulsa(s: Sessao, paciente: Paciente): boolean {
-  if (s.tipo === 'avaliacao') return s.situacao === 'falta_sem_aviso';
-  return paciente.formaCobranca === 'por_sessao';
-}
-
-function montarMeses(sessoes: Sessao[], pagamentos: Pagamento[], hoje: DataISO): MesCobranca[] {
+function montarMeses(sessoes: Sessao[], pagamentosDoMes: Pagamento[], hoje: DataISO): MesCobranca[] {
   const mesDeHoje = `${hoje.slice(0, 7)}-01`;
   const sessoesPorMes = new Map<DataISO, Sessao[]>();
   for (const s of sessoes) {
     const mes = mesDaSessao(s.inicio);
     sessoesPorMes.set(mes, [...(sessoesPorMes.get(mes) ?? []), s]);
   }
-  const pagamentoPorMes = new Map<DataISO, Pagamento>();
-  for (const p of pagamentos) {
-    if (p.referencia === 'mes' && p.mesReferencia !== null) pagamentoPorMes.set(p.mesReferencia, p);
+  const pagamentosPorMes = new Map<DataISO, Pagamento[]>();
+  for (const p of pagamentosDoMes) {
+    if (p.mesReferencia === null) continue;
+    pagamentosPorMes.set(p.mesReferencia, [...(pagamentosPorMes.get(p.mesReferencia) ?? []), p]);
   }
 
   // Mês pago aparece mesmo que as sessões dele tenham deixado de ser cobradas (é o que gera a diferença).
-  const todos = [...new Set([...sessoesPorMes.keys(), ...pagamentoPorMes.keys()])].sort();
+  const todos = [...new Set([...sessoesPorMes.keys(), ...pagamentosPorMes.keys()])].sort();
   return todos.flatMap((mes): MesCobranca[] => {
     const doMes = (sessoesPorMes.get(mes) ?? []).sort(porInicio);
     const totalCentavos = soma(doMes.map((s) => s.valorCentavos ?? 0));
-    const pagamento = pagamentoPorMes.get(mes) ?? null;
-    if (pagamento === null && totalCentavos === 0) return [];
+    const pagamentos = pagamentosPorMes.get(mes) ?? [];
+    if (pagamentos.length === 0 && totalCentavos === 0) return [];
+    const pagoCentavos = soma(pagamentos.map((p) => p.valorCentavos));
+    // Sem pagamento, o total (maior que zero) está todo em aberto.
+    const faltaCentavos = Math.max(0, totalCentavos - pagoCentavos);
     const situacao: MesCobranca['situacao'] =
-      pagamento !== null ? 'pago' : mes < mesDeHoje ? 'devendo' : 'em_andamento';
-    const diferencaCentavos = pagamento === null ? 0 : totalCentavos - pagamento.valorCentavos;
-    return [{ mes, sessoes: doMes, totalCentavos, situacao, pagamento, diferencaCentavos }];
+      faltaCentavos === 0 ? 'pago' : mes < mesDeHoje ? 'devendo' : 'em_andamento';
+    const diferencaCentavos = pagamentos.length === 0 ? 0 : totalCentavos - pagoCentavos;
+    return [
+      { mes, sessoes: doMes, totalCentavos, situacao, pagamentos, pagoCentavos, faltaCentavos, diferencaCentavos },
+    ];
   });
 }
 
-/** O que o paciente ainda deve: sessões avulsas, meses e o pacote da avaliação. */
+/**
+ * O que o paciente ainda deve: sessões avulsas, meses e o pacote da avaliação.
+ *
+ * - Sessão paga uma a uma (num pagamento de sessões) está quitada e nunca entra no total de um mês.
+ * - A psicoterapia é cobrada **como mês** quando o paciente paga por mês hoje, **ou** quando aquele mês já tem
+ *   pagamento do mês, qualquer que seja a forma de agora: mudar a forma de cobrança não reabre um mês pago.
+ *   O total do mês soma as sessões dele não pagas uma a uma; o que passa do que foi pago está em aberto.
+ * - O resto é cobrado sessão por sessão: a psicoterapia de quem paga por sessão (fora dos meses pagos como mês) e
+ *   a falta sem aviso da avaliação. O comparecimento à avaliação é do pacote.
+ */
 export function pendenciasDoPaciente(e: {
   paciente: Paciente;
   sessoes: Sessao[];
@@ -135,14 +151,17 @@ export function pendenciasDoPaciente(e: {
   const pagasIndividualmente = new Set<Id>(
     pagamentos.filter((p) => p.referencia === 'sessoes').flatMap((p) => p.sessaoIds),
   );
-  const cobradas = e.sessoes.filter((s) => s.valorCentavos !== null && !pagasIndividualmente.has(s.id));
+  const pagamentosDoMes = pagamentos.filter((p) => p.referencia === 'mes' && p.mesReferencia !== null);
+  const mesesPagosComoMes = new Set(pagamentosDoMes.map((p) => p.mesReferencia));
+  const cobradaNoMes = (s: Sessao): boolean =>
+    s.tipo === 'psicoterapia' && (e.paciente.formaCobranca === 'mensal' || mesesPagosComoMes.has(mesDaSessao(s.inicio)));
+  const cobradaAvulsa = (s: Sessao): boolean =>
+    s.tipo === 'avaliacao' ? s.situacao === 'falta_sem_aviso' : !cobradaNoMes(s);
 
+  const cobradas = e.sessoes.filter((s) => s.valorCentavos !== null && !pagasIndividualmente.has(s.id));
   // Sessão de valor zero não é dívida: não existe pagamento de zero que a quite.
-  const sessoesAbertas = cobradas
-    .filter((s) => (s.valorCentavos ?? 0) > 0 && ehCobradaAvulsa(s, e.paciente))
-    .sort(porInicio);
-  const doMes = cobradas.filter((s) => s.tipo === 'psicoterapia' && e.paciente.formaCobranca === 'mensal');
-  const meses = e.paciente.formaCobranca === 'mensal' ? montarMeses(doMes, pagamentos, e.hoje) : [];
+  const sessoesAbertas = cobradas.filter((s) => (s.valorCentavos ?? 0) > 0 && cobradaAvulsa(s)).sort(porInicio);
+  const meses = montarMeses(cobradas.filter(cobradaNoMes), pagamentosDoMes, e.hoje);
 
   let avaliacao: Pendencias['avaliacao'] = null;
   if (e.avaliacao !== null) {
@@ -154,7 +173,7 @@ export function pendenciasDoPaciente(e: {
     avaliacao = { valorFinalCentavos, pagoCentavos, faltaCentavos: Math.max(0, valorFinalCentavos - pagoCentavos) };
   }
 
-  const mesesEmAberto = meses.filter((m) => m.situacao !== 'pago');
+  const mesesEmAberto = meses.filter((m) => m.faltaCentavos > 0);
   const faltaCentavos = avaliacao?.faltaCentavos ?? 0;
   return {
     sessoesAbertas,
@@ -162,7 +181,7 @@ export function pendenciasDoPaciente(e: {
     avaliacao,
     totalEmAbertoCentavos:
       soma(sessoesAbertas.map((s) => s.valorCentavos ?? 0)) +
-      soma(mesesEmAberto.map((m) => m.totalCentavos)) +
+      soma(mesesEmAberto.map((m) => m.faltaCentavos)) +
       faltaCentavos,
     desde: menorData([
       ...sessoesAbertas.map((s) => dataLocal(s.inicio)),

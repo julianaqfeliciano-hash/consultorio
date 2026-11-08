@@ -2,10 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { criarRepositorioMemoria } from '../dados/memoria';
 import type { Repositorio } from '../dados/repositorio';
 import { sementeDemo } from '../dados/semente-demo';
+import { pendenciasDoPaciente, resumoAReceber } from '../regras/cobranca';
 import { formatarReais } from '../regras/dinheiro';
 import { avaliacaoExemplo, pacienteExemplo, sessaoExemplo } from '../testes/fabricas';
 import { marcarSituacao } from './agenda';
-import { agendarReposicao, ErroCobranca, registrarPagamento, removerPagamento } from './cobranca';
+import {
+  agendarReposicao,
+  ERRO_MES_JA_PAGO,
+  ERRO_VALOR_DO_MES_MUDOU,
+  ErroCobranca,
+  registrarPagamento,
+  removerPagamento,
+} from './cobranca';
 
 const HOJE = '2026-11-02';
 const ANA = 'demo-paciente-ana';
@@ -27,6 +35,26 @@ async function erroDe(chamada: Promise<unknown>): Promise<string> {
 
 const COMUM = { data: '2026-11-02', forma: 'pix', observacao: null } as const;
 const SO_ABERTAS = 'Escolha só sessões em aberto deste paciente.';
+
+/** O que o paciente deve agora, lido do repositório como a ficha lê. */
+async function pendenciasDe(repo: Repositorio, pacienteId: string, hoje = HOJE) {
+  const ficha = await repo.obterFicha(pacienteId);
+  if (ficha === null) throw new Error(`sem ficha: ${pacienteId}`);
+  return pendenciasDoPaciente({
+    paciente: ficha.paciente,
+    sessoes: await repo.listarSessoesDoPaciente(pacienteId),
+    pagamentos: await repo.listarPagamentos({ pacienteId }),
+    avaliacao: ficha.avaliacao,
+    hoje,
+  });
+}
+
+/** Muda a forma de cobrança do paciente, como a seção Cobrança da ficha faz. */
+async function mudarForma(repo: Repositorio, pacienteId: string, formaCobranca: 'mensal' | 'por_sessao') {
+  const ficha = await repo.obterFicha(pacienteId);
+  if (ficha === null) throw new Error(`sem ficha: ${pacienteId}`);
+  await repo.salvarPaciente({ ...ficha.paciente, formaCobranca });
+}
 
 describe('registrarPagamento de sessões', () => {
   it('o valor é a soma dos valores guardados nas sessões', async () => {
@@ -169,12 +197,12 @@ describe('registrarPagamento de sessões', () => {
 });
 
 describe('registrarPagamento de mês', () => {
-  it('o valor é o total do mês, não importa o que a tela mostrava', async () => {
+  it('o valor é o que falta do mês, calculado das sessões guardadas', async () => {
     const repo = repoDemo();
 
     const pagamento = await registrarPagamento(
       repo,
-      { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-10-01' },
+      { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-10-01', valorCentavos: 80000 },
       HOJE,
     );
 
@@ -193,7 +221,7 @@ describe('registrarPagamento de mês', () => {
     const repo = repoDemo();
     const pagamento = await registrarPagamento(
       repo,
-      { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-10-17' },
+      { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-10-17', valorCentavos: 80000 },
       HOJE,
     );
     expect(pagamento.mesReferencia).toBe('2026-10-01');
@@ -210,7 +238,7 @@ describe('registrarPagamento de mês', () => {
     });
     const pagamento = await registrarPagamento(
       repo,
-      { ...COMUM, pacienteId: 'p1', referencia: 'mes', mes: '2026-10-01' },
+      { ...COMUM, pacienteId: 'p1', referencia: 'mes', mes: '2026-10-01', valorCentavos: 62000 },
       HOJE,
     );
     expect(pagamento.valorCentavos).toBe(62000);
@@ -218,31 +246,186 @@ describe('registrarPagamento de mês', () => {
 
   it('rejeita mês que já foi pago e continua havendo um pagamento só', async () => {
     const repo = repoDemo();
-    await registrarPagamento(repo, { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-10-01' }, HOJE);
+    await registrarPagamento(repo, { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-10-01', valorCentavos: 80000 }, HOJE);
 
     const mensagem = await erroDe(
-      registrarPagamento(repo, { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-10-01' }, HOJE),
+      registrarPagamento(repo, { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-10-01', valorCentavos: 80000 }, HOJE),
     );
 
     expect(mensagem).toBe('Este mês já foi pago.');
+    expect(mensagem).toBe(ERRO_MES_JA_PAGO);
     expect(await repo.listarPagamentos({ pacienteId: ANA })).toHaveLength(1);
   });
 
   it('rejeita mês sem nada a receber', async () => {
     const repo = repoDemo();
     const mensagem = await erroDe(
-      registrarPagamento(repo, { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-09-01' }, HOJE),
+      registrarPagamento(repo, { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-09-01', valorCentavos: 0 }, HOJE),
     );
     expect(mensagem).toBe('Este mês não tem nada a receber.');
     expect(await repo.listarPagamentos({ pacienteId: ANA })).toEqual([]);
   });
 
-  it('rejeita mês de quem não paga por mês', async () => {
+  it('rejeita mês de quem paga por sessão e ainda não pagou aquele mês como mês', async () => {
     const repo = repoDemo();
     const mensagem = await erroDe(
-      registrarPagamento(repo, { ...COMUM, pacienteId: MARIA, referencia: 'mes', mes: '2026-10-01' }, HOJE),
+      registrarPagamento(repo, { ...COMUM, pacienteId: MARIA, referencia: 'mes', mes: '2026-10-01', valorCentavos: 18000 }, HOJE),
     );
     expect(mensagem).toBe('Este mês não tem nada a receber.');
+  });
+
+  it('recusa, sem gravar nada, quando o valor que a tela mostrou não é mais o que falta do mês', async () => {
+    const repo = repoDemo();
+    const antes = await repo.listarPagamentos();
+
+    // A tela mostrou R$ 600,00, mas outubro da Ana soma R$ 800,00 (outro aparelho marcou mais uma sessão).
+    const mensagem = await erroDe(
+      registrarPagamento(repo, { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-10-01', valorCentavos: 60000 }, HOJE),
+    );
+
+    expect(mensagem).toBe('O valor do mês mudou. Confira e confirme de novo.');
+    expect(mensagem).toBe(ERRO_VALOR_DO_MES_MUDOU);
+    expect(await repo.listarPagamentos()).toEqual(antes);
+  });
+
+  it('mês pago no meio do mês: a sessão marcada depois fica em aberto, entra no a receber e é paga uma vez só', async () => {
+    const repo = criarRepositorioMemoria({
+      pacientes: [pacienteExemplo({ formaCobranca: 'mensal', valorSessaoCentavos: 20000 })],
+      sessoes: [
+        sessaoExemplo({ id: 'nov-03', inicio: '2026-11-03T17:00:00.000Z', situacao: 'compareceu', valorCentavos: 20000 }),
+        sessaoExemplo({ id: 'nov-10', inicio: '2026-11-10T17:00:00.000Z' }),
+      ],
+    });
+    // Dia 04/11: paga novembro com a única sessão marcada até ali.
+    await registrarPagamento(
+      repo,
+      { ...COMUM, data: '2026-11-04', pacienteId: 'p1', referencia: 'mes', mes: '2026-11-01', valorCentavos: 20000 },
+      '2026-11-04',
+    );
+    expect((await pendenciasDe(repo, 'p1', '2026-11-04')).totalEmAbertoCentavos).toBe(0);
+
+    // Dia 10/11: a sessão do dia é marcada. Novembro passa a dever a diferença.
+    const [, dia10] = await repo.listarSessoesDoPaciente('p1');
+    await marcarSituacao(repo, dia10, 'compareceu');
+    const depois = await pendenciasDe(repo, 'p1', '2026-11-10');
+    expect(depois.meses).toEqual([
+      expect.objectContaining({ mes: '2026-11-01', totalCentavos: 40000, pagoCentavos: 20000, faltaCentavos: 20000, situacao: 'em_andamento' }),
+    ]);
+    const paciente = (await repo.obterFicha('p1'))?.paciente ?? pacienteExemplo();
+    expect(resumoAReceber([{ paciente, pendencias: depois }])).toEqual([{ paciente, totalCentavos: 20000, desde: '2026-11-01' }]);
+
+    // A diferença é paga uma vez; a segunda tentativa é recusada.
+    const diferenca = await registrarPagamento(
+      repo,
+      { ...COMUM, data: '2026-11-10', pacienteId: 'p1', referencia: 'mes', mes: '2026-11-01', valorCentavos: 20000 },
+      '2026-11-10',
+    );
+    expect(diferenca).toMatchObject({ referencia: 'mes', mesReferencia: '2026-11-01', valorCentavos: 20000 });
+    expect((await pendenciasDe(repo, 'p1', '2026-11-10')).totalEmAbertoCentavos).toBe(0);
+    expect(
+      await erroDe(
+        registrarPagamento(
+          repo,
+          { ...COMUM, data: '2026-11-10', pacienteId: 'p1', referencia: 'mes', mes: '2026-11-01', valorCentavos: 20000 },
+          '2026-11-10',
+        ),
+      ),
+    ).toBe('Este mês já foi pago.');
+    expect((await repo.listarPagamentos({ pacienteId: 'p1' })).map((p) => p.valorCentavos)).toEqual([20000, 20000]);
+  });
+});
+
+describe('mudar a forma de cobrança depois de pagar', () => {
+  const OUTUBRO_DA_ANA = ['demo-sessao-ana-1', 'demo-sessao-ana-2', 'demo-sessao-ana-3', 'demo-sessao-ana-4'];
+
+  it('Ana paga outubro (R$ 800,00) e passa a pagar por sessão: nada reabre e outro R$ 800,00 não é aceito', async () => {
+    const repo = repoDemo();
+    expect((await repo.listarSessoesDoPaciente(ANA)).map((s) => s.id)).toEqual(OUTUBRO_DA_ANA);
+    await registrarPagamento(repo, { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-10-01', valorCentavos: 80000 }, HOJE);
+
+    await mudarForma(repo, ANA, 'por_sessao');
+
+    const pendencias = await pendenciasDe(repo, ANA);
+    expect(pendencias.sessoesAbertas).toEqual([]);
+    expect(pendencias.totalEmAbertoCentavos).toBe(0);
+    expect(pendencias.meses).toEqual([expect.objectContaining({ mes: '2026-10-01', situacao: 'pago', faltaCentavos: 0 })]);
+    // Nem as sessões uma a uma, nem o mês de novo.
+    expect(
+      await erroDe(registrarPagamento(repo, { ...COMUM, pacienteId: ANA, referencia: 'sessoes', sessaoIds: OUTUBRO_DA_ANA }, HOJE)),
+    ).toBe(SO_ABERTAS);
+    expect(
+      await erroDe(
+        registrarPagamento(repo, { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-10-01', valorCentavos: 80000 }, HOJE),
+      ),
+    ).toBe('Este mês já foi pago.');
+    expect(await repo.listarPagamentos({ pacienteId: ANA })).toHaveLength(1);
+  });
+
+  it('depois de passar para por sessão, uma sessão marcada a mais num mês pago como mês é paga como diferença do mês', async () => {
+    const repo = criarRepositorioMemoria({
+      pacientes: [pacienteExemplo({ formaCobranca: 'mensal', valorSessaoCentavos: 20000 })],
+      sessoes: [
+        sessaoExemplo({ id: 'a', inicio: '2026-10-06T17:00:00.000Z', situacao: 'compareceu', valorCentavos: 20000 }),
+        sessaoExemplo({ id: 'b', inicio: '2026-10-13T17:00:00.000Z' }),
+      ],
+    });
+    await registrarPagamento(repo, { ...COMUM, pacienteId: 'p1', referencia: 'mes', mes: '2026-10-01', valorCentavos: 20000 }, HOJE);
+    await mudarForma(repo, 'p1', 'por_sessao');
+    const [, b] = await repo.listarSessoesDoPaciente('p1');
+    await marcarSituacao(repo, b, 'compareceu');
+
+    // A sessão é de um mês pago como mês: não se paga sozinha.
+    expect(await erroDe(registrarPagamento(repo, { ...COMUM, pacienteId: 'p1', referencia: 'sessoes', sessaoIds: ['b'] }, HOJE))).toBe(
+      SO_ABERTAS,
+    );
+    const diferenca = await registrarPagamento(
+      repo,
+      { ...COMUM, pacienteId: 'p1', referencia: 'mes', mes: '2026-10-01', valorCentavos: 20000 },
+      HOJE,
+    );
+    expect(diferenca).toMatchObject({ referencia: 'mes', mesReferencia: '2026-10-01', valorCentavos: 20000 });
+    expect((await pendenciasDe(repo, 'p1')).totalEmAbertoCentavos).toBe(0);
+  });
+
+  it('de por sessão para mensal: o mês cobra só o que não foi pago sessão por sessão', async () => {
+    const repo = repoDemo();
+    // Maria: a quinta 22/10 já foi paga uma a uma; a de 29/10 não.
+    await mudarForma(repo, MARIA, 'mensal');
+
+    const pagamento = await registrarPagamento(
+      repo,
+      { ...COMUM, pacienteId: MARIA, referencia: 'mes', mes: '2026-10-01', valorCentavos: 18000 },
+      HOJE,
+    );
+    expect(pagamento.valorCentavos).toBe(18000);
+    expect((await pendenciasDe(repo, MARIA)).totalEmAbertoCentavos).toBe(0);
+  });
+});
+
+describe('data do pagamento', () => {
+  it('recusa uma data depois de hoje, sem gravar nada', async () => {
+    const repo = repoDemo();
+    const antes = await repo.listarPagamentos();
+    const amanha = { ...COMUM, data: '2026-11-03' };
+
+    for (const pedido of [
+      { ...amanha, pacienteId: MARIA, referencia: 'sessoes' as const, sessaoIds: ['demo-sessao-maria-2'] },
+      { ...amanha, pacienteId: ANA, referencia: 'mes' as const, mes: '2026-10-01', valorCentavos: 80000 },
+      { ...amanha, pacienteId: PEDRO, referencia: 'avaliacao' as const, valorCentavos: 10000 },
+    ]) {
+      expect(await erroDe(registrarPagamento(repo, pedido, HOJE))).toBe('A data do pagamento não pode ser depois de hoje.');
+    }
+    expect(await repo.listarPagamentos()).toEqual(antes);
+  });
+
+  it('aceita hoje e uma data passada', async () => {
+    const repo = repoDemo();
+    await expect(
+      registrarPagamento(repo, { ...COMUM, data: HOJE, pacienteId: MARIA, referencia: 'sessoes', sessaoIds: ['demo-sessao-maria-2'] }, HOJE),
+    ).resolves.toMatchObject({ data: HOJE });
+    await expect(
+      registrarPagamento(repo, { ...COMUM, data: '2026-10-31', pacienteId: PEDRO, referencia: 'avaliacao', valorCentavos: 10000 }, HOJE),
+    ).resolves.toMatchObject({ data: '2026-10-31' });
   });
 });
 
@@ -339,7 +522,7 @@ describe('registrarPagamento', () => {
   it('rejeita paciente que não existe', async () => {
     const repo = repoDemo();
     await expect(
-      registrarPagamento(repo, { ...COMUM, pacienteId: 'fantasma', referencia: 'mes', mes: '2026-10-01' }, HOJE),
+      registrarPagamento(repo, { ...COMUM, pacienteId: 'fantasma', referencia: 'mes', mes: '2026-10-01', valorCentavos: 80000 }, HOJE),
     ).rejects.toThrow('Paciente não encontrado');
   });
 });
@@ -361,11 +544,11 @@ describe('removerPagamento', () => {
 
   it('libera o mês e devolve o controle da situação da sessão', async () => {
     const repo = repoDemo();
-    const mes = await registrarPagamento(repo, { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-10-01' }, HOJE);
+    const mes = await registrarPagamento(repo, { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-10-01', valorCentavos: 80000 }, HOJE);
     await removerPagamento(repo, mes.id);
     expect(await repo.listarPagamentos({ pacienteId: ANA })).toEqual([]);
     await expect(
-      registrarPagamento(repo, { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-10-01' }, HOJE),
+      registrarPagamento(repo, { ...COMUM, pacienteId: ANA, referencia: 'mes', mes: '2026-10-01', valorCentavos: 80000 }, HOJE),
     ).resolves.toMatchObject({ valorCentavos: 80000 });
   });
 

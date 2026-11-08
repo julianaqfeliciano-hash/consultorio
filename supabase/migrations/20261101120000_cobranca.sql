@@ -24,6 +24,21 @@ alter table configuracoes
 alter table sessoes
   add column valor_centavos int check (valor_centavos is null or valor_centavos >= 0);
 
+-- As sessões já marcadas antes desta migração (agenda das Etapas 1 e 2) ganham
+-- o valor agora, com a mesma regra do app (valorCobradoDaSessao): psicoterapia
+-- (inclusive o acompanhamento familiar) quando compareceu ou faltou sem aviso;
+-- avaliação só quando faltou sem aviso (o comparecimento é do pacote). O valor
+-- é o valor da sessão de hoje do paciente. As outras sessões continuam sem valor.
+update sessoes s
+set valor_centavos = p.valor_sessao_centavos
+from pacientes p
+where p.id = s.paciente_id
+  and s.valor_centavos is null
+  and (
+    (s.tipo = 'psicoterapia' and s.situacao in ('compareceu', 'falta_sem_aviso'))
+    or (s.tipo = 'avaliacao' and s.situacao = 'falta_sem_aviso')
+  );
+
 -- Pacote da avaliação: valor previsto e desconto (em reais ou em porcentagem).
 -- Quando o tipo é 'reais', desconto_valor está em centavos; quando é
 -- 'percentual', é a porcentagem, de 0 a 100.
@@ -49,7 +64,9 @@ create table pagamentos (
   observacao text,
   -- O que está sendo pago: sessões soltas, um mês inteiro ou o pacote da avaliação.
   referencia text not null check (referencia in ('sessoes', 'mes', 'avaliacao')),
-  -- Só no pagamento do mês, sempre o dia 1 (é o que torna a unicidade abaixo confiável).
+  -- Só no pagamento do mês, sempre o dia 1. Um mês pode ter mais de um pagamento
+  -- (o da diferença, quando o total sobe depois do pagamento), como as parcelas
+  -- da avaliação: quem confere se ainda falta algo é o app.
   mes_referencia date check (mes_referencia is null or extract(day from mes_referencia) = 1),
   -- Só no pagamento da avaliação. Avaliação com pagamento não pode ser apagada.
   avaliacao_id uuid references avaliacoes (id) on delete restrict,
@@ -58,10 +75,6 @@ create table pagamentos (
   constraint pagamentos_avaliacao_coerente
     check ((referencia = 'avaliacao') = (avaliacao_id is not null))
 );
-
--- Não existe pagamento parcial do mês: no máximo um por paciente e mês.
-create unique index pagamentos_um_por_paciente_e_mes
-  on pagamentos (paciente_id, mes_referencia) where referencia = 'mes';
 
 -- Quais sessões cada pagamento quitou. Uma sessão só pode ser paga uma vez
 -- (unique em sessao_id) e uma sessão paga não pode ser apagada.

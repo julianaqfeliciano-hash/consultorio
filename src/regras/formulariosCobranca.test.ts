@@ -1,11 +1,12 @@
-import { validarPagamento, type ValoresPagamento } from './formulariosCobranca';
+import { ERRO_DATA_DEPOIS_DE_HOJE, validarPagamento, type ValoresPagamento } from './formulariosCobranca';
 
-const base: ValoresPagamento = { data: '2026-11-02', forma: 'pix', observacao: '', valor: '' };
+const HOJE = '2026-11-02';
+const base: ValoresPagamento = { data: HOJE, forma: 'pix', observacao: '', valor: '' };
 
 describe('validarPagamento', () => {
   describe('valor fixo (sessões e mês)', () => {
     it('devolve data, forma e observação, sem valor: ele vem dos valores guardados', () => {
-      const r = validarPagamento({ ...base, valor: 'qualquer coisa' }, false);
+      const r = validarPagamento({ ...base, valor: 'qualquer coisa' }, false, HOJE);
 
       expect(r.erros).toEqual({});
       expect(r.dados).toEqual({ data: '2026-11-02', forma: 'pix', observacao: null });
@@ -13,14 +14,30 @@ describe('validarPagamento', () => {
     });
 
     it('a observação vai sem as pontas em branco, ou como nula quando vazia', () => {
-      expect(validarPagamento({ ...base, observacao: '  Pagou em dinheiro vivo.  ' }, false).dados?.observacao).toBe(
+      expect(validarPagamento({ ...base, observacao: '  Pagou em dinheiro vivo.  ' }, false, HOJE).dados?.observacao).toBe(
         'Pagou em dinheiro vivo.',
       );
-      expect(validarPagamento({ ...base, observacao: '   ' }, false).dados?.observacao).toBeNull();
+      expect(validarPagamento({ ...base, observacao: '   ' }, false, HOJE).dados?.observacao).toBeNull();
+    });
+
+    it('recusa uma data depois de hoje (um ano digitado errado, por exemplo)', () => {
+      for (const data of ['2026-11-03', '2062-11-02']) {
+        const r = validarPagamento({ ...base, data }, false, HOJE);
+
+        expect(r.dados).toBeNull();
+        expect(r.erros).toEqual({ data: 'A data do pagamento não pode ser depois de hoje.' });
+      }
+      expect(ERRO_DATA_DEPOIS_DE_HOJE).toBe('A data do pagamento não pode ser depois de hoje.');
+    });
+
+    it('aceita hoje e datas passadas', () => {
+      for (const data of [HOJE, '2026-11-01', '2025-12-31']) {
+        expect(validarPagamento({ ...base, data }, false, HOJE).dados?.data).toBe(data);
+      }
     });
 
     it('pede a data quando falta', () => {
-      const r = validarPagamento({ ...base, data: '' }, false);
+      const r = validarPagamento({ ...base, data: '' }, false, HOJE);
 
       expect(r.dados).toBeNull();
       expect(r.erros).toEqual({ data: 'Informe a data do pagamento.' });
@@ -34,21 +51,21 @@ describe('validarPagamento', () => {
       ['R$ 1.250,50', 125050],
       ['0,01', 1],
     ])('lê "%s" como %i centavos', (texto, centavos) => {
-      const r = validarPagamento({ ...base, forma: 'cartao', valor: texto }, true);
+      const r = validarPagamento({ ...base, forma: 'cartao', valor: texto }, true, HOJE);
 
       expect(r.erros).toEqual({});
       expect(r.dados).toEqual({ data: '2026-11-02', forma: 'cartao', observacao: null, valorCentavos: centavos });
     });
 
     it.each(['', '   ', '0', '0,00', 'abc', '12,345,6', '-5'])('recusa o valor "%s"', (texto) => {
-      const r = validarPagamento({ ...base, valor: texto }, true);
+      const r = validarPagamento({ ...base, valor: texto }, true, HOJE);
 
       expect(r.dados).toBeNull();
       expect(r.erros).toEqual({ valor: 'Informe um valor maior que zero, como 500 ou 500,50.' });
     });
 
     it('mostra os dois avisos de uma vez quando faltam a data e o valor', () => {
-      const r = validarPagamento({ ...base, data: '', valor: '' }, true);
+      const r = validarPagamento({ ...base, data: '', valor: '' }, true, HOJE);
 
       expect(r.dados).toBeNull();
       expect(r.erros).toEqual({

@@ -11,7 +11,7 @@ import {
   type PedidoPagamento,
 } from '../servicos/cobranca';
 import { useRepositorio } from './contexto';
-import type { SessaoComPaciente } from './repositorio';
+import { RecusaDoRepositorio, type SessaoComPaciente } from './repositorio';
 import { useFicha, useSessoesDoPaciente } from './useFicha';
 
 const chavePagamentos = (id: Id) => ['pagamentos', id] as const;
@@ -92,11 +92,12 @@ export function useAReceber() {
 }
 
 /**
- * O texto de erro para a tela: a mensagem de uma recusa do serviço (`ErroCobranca`, que já é para a pessoa ler)
- * ou `padrao` para qualquer outro erro (rede, banco), cuja mensagem técnica ela não entenderia.
+ * O texto de erro para a tela: a mensagem de uma recusa, que já é para a pessoa ler (`ErroCobranca` do serviço, ou
+ * `RecusaDoRepositorio` quando o banco recusa, por exemplo uma sessão que outro aparelho acabou de pagar), ou
+ * `padrao` para qualquer outro erro (rede, banco), cuja mensagem técnica ela não entenderia.
  */
 export function mensagemDoErro(erro: unknown, padrao: string): string {
-  return erro instanceof ErroCobranca ? erro.message : padrao;
+  return erro instanceof ErroCobranca || erro instanceof RecusaDoRepositorio ? erro.message : padrao;
 }
 
 /**
@@ -122,7 +123,7 @@ export function useRegistrarPagamento() {
   });
 }
 
-/** Apaga o pagamento: as sessões e o mês que ele quitava voltam a ficar em aberto. */
+/** Apaga o pagamento: as sessões que ele quitava, ou o que ele pagou do mês, voltam a ficar em aberto. */
 export function useRemoverPagamento() {
   const repositorio = useRepositorio();
   const atualizar = useAtualizarCobranca();

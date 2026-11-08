@@ -1,4 +1,4 @@
-import { CalendarRange, CircleCheck, CircleDollarSign, Package } from 'lucide-react';
+import { CalendarCheck, CalendarRange, CircleAlert, CircleCheck, CircleDollarSign, Package } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Botao } from '../../componentes/Botao';
 import { FormularioPagamento } from '../../componentes/FormularioPagamento';
@@ -6,7 +6,7 @@ import { mensagemDoErro, usePagamentosDoPaciente, usePendencias, useRegistrarPag
 import { useFicha, useSessoesDoPaciente } from '../../dados/useFicha';
 import { ROTULO_FORMA } from '../../dominio/rotulos';
 import type { Sessao } from '../../dominio/tipos';
-import { mesDaSessao, mesPorExtenso } from '../../regras/cobranca';
+import { mesPorExtenso, valorCobradoDaSessao } from '../../regras/cobranca';
 import { formatarData } from '../../regras/datas';
 import { formatarReais } from '../../regras/dinheiro';
 
@@ -22,8 +22,9 @@ function Linha({ icone: Icone, aberta = false, children }: { icone: typeof Circl
 
 /**
  * Como a sessão é cobrada (spec §4.1, §6): paga ("Pago em 03/11 · Pix"), pendente com o botão de registrar o
- * pagamento, parte da mensalidade, parte do pacote da avaliação, ou nada quando não há valor. Espera ficha,
- * sessões e pagamentos do paciente chegarem para não dizer "pendente" de uma sessão que já foi paga.
+ * pagamento, sem cobrança por estar com valor zero, parte da mensalidade (já paga ou não), parte do pacote da
+ * avaliação, ou nada quando não há valor. Espera ficha, sessões e pagamentos do paciente chegarem para não dizer
+ * "pendente" de uma sessão que já foi paga.
  */
 export function CobrancaDaSessao({ sessao }: { sessao: Sessao }) {
   const ficha = useFicha(sessao.pacienteId);
@@ -89,10 +90,23 @@ export function CobrancaDaSessao({ sessao }: { sessao: Sessao }) {
     );
   }
 
-  const valorDaSessao = sessao.valorCentavos ?? 0;
-  if (sessao.tipo === 'psicoterapia' && ficha.data.paciente.formaCobranca === 'mensal' && valorDaSessao > 0) {
+  // Cobrada, mas guardada com R$ 0,00 (o valor do paciente estava em branco): nada a receber, e ela precisa saber.
+  // Mudar entre duas situações cobradas mantém o valor guardado; só marcar de novo a partir de Agendada o refaz.
+  if (sessao.valorCentavos === 0 && valorCobradoDaSessao(sessao, 0) !== null) {
     return (
-      <Linha icone={CalendarRange}>{`Entra na mensalidade de ${mesPorExtenso(mesDaSessao(sessao.inicio))}`}</Linha>
+      <Linha icone={CircleAlert} aberta>
+        {`Sem cobrança: o valor desta sessão está em ${formatarReais(0)}. Para cobrar, ajuste o valor na ficha do paciente, toque em Voltar para Agendada e marque de novo.`}
+      </Linha>
+    );
+  }
+
+  // O mês em que ela entra: o de quem paga por mês, ou um mês já pago como mês (mesmo que hoje a forma seja outra).
+  const mes = pendencias.meses.find((m) => m.sessoes.some((s) => s.id === sessao.id));
+  if (mes) {
+    return mes.faltaCentavos === 0 ? (
+      <Linha icone={CalendarCheck}>{`Paga na mensalidade de ${mesPorExtenso(mes.mes)}`}</Linha>
+    ) : (
+      <Linha icone={CalendarRange}>{`Entra na mensalidade de ${mesPorExtenso(mes.mes)}`}</Linha>
     );
   }
   if (sessao.tipo === 'avaliacao' && sessao.situacao === 'compareceu') {

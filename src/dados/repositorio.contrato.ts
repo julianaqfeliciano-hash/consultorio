@@ -11,7 +11,7 @@ import type {
 } from '../dominio/tipos';
 import { chaveOcorrencia } from '../regras/agenda';
 import { instanteDe } from '../regras/datas';
-import type { Rascunho, Repositorio } from './repositorio';
+import { RecusaDoRepositorio, type Rascunho, type Repositorio } from './repositorio';
 
 /**
  * Suíte que toda implementação de `Repositorio` precisa passar (memória e Supabase).
@@ -880,9 +880,10 @@ export function testarContrato(nome: string, fabrica: () => Promise<Repositorio>
         const sessao = await repo.criarSessao(sessaoCobrada(paciente.id, '2026-10-06'));
         const primeiro = await repo.registrarPagamento(pagamentoNovo(paciente.id, { sessaoIds: [sessao.id] }));
 
-        await expect(
-          repo.registrarPagamento(pagamentoNovo(paciente.id, { sessaoIds: [sessao.id] })),
-        ).rejects.toThrow('Esta sessão já foi paga.');
+        const recusa = repo.registrarPagamento(pagamentoNovo(paciente.id, { sessaoIds: [sessao.id] }));
+        await expect(recusa).rejects.toThrow('Esta sessão já foi paga.');
+        // Uma recusa com mensagem para ela ler (não um "tente de novo").
+        await expect(recusa).rejects.toBeInstanceOf(RecusaDoRepositorio);
         expect(await repo.listarPagamentos({ pacienteId: paciente.id })).toEqual([primeiro]);
       });
 
@@ -902,22 +903,23 @@ export function testarContrato(nome: string, fabrica: () => Promise<Repositorio>
         expect(depois.sessaoIds).toEqual([livre.id]);
       });
 
-      it('pagar o mesmo mês duas vezes rejeita; outro mês ou outro paciente pode', async () => {
+      it('o mesmo mês pode ter mais de um pagamento (o da diferença), como as parcelas da avaliação', async () => {
         const repo = await fabrica();
         const paciente = await repo.salvarPaciente(rascunhoPaciente({ formaCobranca: 'mensal' }));
         const outro = await repo.salvarPaciente(rascunhoPaciente({ nome: 'Outro Paciente', formaCobranca: 'mensal' }));
         const outubro = await repo.registrarPagamento(
-          pagamentoNovo(paciente.id, { referencia: 'mes', mesReferencia: '2026-10-01' }),
+          pagamentoNovo(paciente.id, { referencia: 'mes', mesReferencia: '2026-10-01', valorCentavos: 60000 }),
         );
 
-        await expect(
-          repo.registrarPagamento(pagamentoNovo(paciente.id, { referencia: 'mes', mesReferencia: '2026-10-01', data: '2026-10-25' })),
-        ).rejects.toThrow('Este mês já foi pago.');
-        expect(await repo.listarPagamentos({ pacienteId: paciente.id })).toEqual([outubro]);
+        // Quem decide se ainda falta algo é o serviço; o repositório guarda os dois.
+        const diferenca = await repo.registrarPagamento(
+          pagamentoNovo(paciente.id, { referencia: 'mes', mesReferencia: '2026-10-01', data: '2026-10-25', valorCentavos: 20000 }),
+        );
+        expect(await repo.listarPagamentos({ pacienteId: paciente.id })).toEqual([outubro, diferenca]);
 
         await repo.registrarPagamento(pagamentoNovo(paciente.id, { referencia: 'mes', mesReferencia: '2026-11-01' }));
         await repo.registrarPagamento(pagamentoNovo(outro.id, { referencia: 'mes', mesReferencia: '2026-10-01' }));
-        expect(await repo.listarPagamentos()).toHaveLength(3);
+        expect(await repo.listarPagamentos()).toHaveLength(4);
       });
 
       it('rejeita pagamento incoerente: valor zero, mês sem referência, mês fora do dia 1, avaliação sem id', async () => {
@@ -987,9 +989,9 @@ export function testarContrato(nome: string, fabrica: () => Promise<Repositorio>
         const pagamento = await repo.registrarPagamento(pagamentoNovo(paciente.id, { sessaoIds: [paga.id] }));
 
         // Um lote com uma sessão paga não apaga nada, nem as livres.
-        await expect(repo.removerSessoes([livre.id, paga.id])).rejects.toThrow(
-          'Esta sessão já foi paga e não pode ser removida.',
-        );
+        const recusa = repo.removerSessoes([livre.id, paga.id]);
+        await expect(recusa).rejects.toThrow('Esta sessão já foi paga e não pode ser removida.');
+        await expect(recusa).rejects.toBeInstanceOf(RecusaDoRepositorio);
         expect((await repo.listarSessoesDoPaciente(paciente.id)).map((s) => s.id)).toEqual([paga.id, livre.id]);
 
         await repo.removerPagamento(pagamento.id);

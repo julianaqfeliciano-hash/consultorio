@@ -1,33 +1,56 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { RecusaDoRepositorio } from './repositorio';
 import { buscarTodas, criarRepositorioSupabase, traduzirErroDoBanco } from './supabase';
 
 const resposta = (n: number) => ({ data: Array.from({ length: n }, (_, i) => ({ i })), error: null });
 
 describe('buscarTodas', () => {
-  it('pagina de 1000 em 1000 até uma página incompleta: 1000, 1000 e 3 linhas são 2003 linhas em 3 chamadas', async () => {
-    const paginas = [resposta(1000), resposta(1000), resposta(3)];
+  it('pede de 1000 em 1000, avançando pelo que veio, até uma página vazia: 1000, 1000 e 3 linhas são 2003 linhas', async () => {
+    const paginas = [resposta(1000), resposta(1000), resposta(3), resposta(0)];
     const fabrica = vi.fn<(de: number, ate: number) => Promise<ReturnType<typeof resposta>>>(async () => paginas.shift()!);
 
     const linhas = await buscarTodas<{ i: number }>(fabrica);
 
     expect(linhas).toHaveLength(2003);
-    expect(fabrica).toHaveBeenCalledTimes(3);
-    // `.range(de, ate)` tem os dois limites incluídos.
+    // `.range(de, ate)` tem os dois limites incluídos; cada pedido começa onde o anterior parou.
     expect(fabrica.mock.calls).toEqual([
       [0, 999],
       [1000, 1999],
       [2000, 2999],
+      [2003, 3002],
     ]);
   });
 
-  it('uma página incompleta basta: uma só chamada', async () => {
-    const fabrica = vi.fn(async () => resposta(12));
-    expect(await buscarTodas(fabrica)).toHaveLength(12);
-    expect(fabrica).toHaveBeenCalledTimes(1);
+  it('se o projeto entrega menos de 1000 linhas por pedido (max_rows menor), não perde nenhuma', async () => {
+    const pagina = (de: number, n: number) => ({ data: Array.from({ length: n }, (_, i) => de + i), error: null });
+    const paginas = [pagina(0, 500), pagina(500, 500), pagina(1000, 3), pagina(1003, 0)];
+    const fabrica = vi.fn<(de: number, ate: number) => Promise<ReturnType<typeof pagina>>>(async () => paginas.shift()!);
+
+    const linhas = await buscarTodas<number>(fabrica);
+
+    expect(linhas).toEqual(Array.from({ length: 1003 }, (_, i) => i));
+    expect(fabrica.mock.calls).toEqual([
+      [0, 999],
+      [500, 1499],
+      [1000, 1999],
+      [1003, 2002],
+    ]);
   });
 
-  it('sem nenhuma linha, devolve lista vazia', async () => {
-    expect(await buscarTodas(async () => resposta(0))).toEqual([]);
+  it('uma página incompleta ainda pergunta pela seguinte, que vem vazia', async () => {
+    const paginas = [resposta(12), resposta(0)];
+    const fabrica = vi.fn(async () => paginas.shift()!);
+    expect(await buscarTodas(fabrica)).toHaveLength(12);
+    expect(fabrica.mock.calls).toEqual([
+      [0, 999],
+      [12, 1011],
+    ]);
+  });
+
+  it('sem nenhuma linha, devolve lista vazia num pedido só', async () => {
+    const fabrica = vi.fn(async () => resposta(0));
+    expect(await buscarTodas(fabrica)).toEqual([]);
+    expect(fabrica).toHaveBeenCalledTimes(1);
   });
 
   it('com exatamente 1000 linhas ainda pergunta pela página seguinte, que vem vazia', async () => {
@@ -39,7 +62,7 @@ describe('buscarTodas', () => {
 
   it('mantém a ordem das páginas', async () => {
     const pagina = (de: number, n: number) => ({ data: Array.from({ length: n }, (_, i) => de + i), error: null });
-    const paginas = [pagina(0, 1000), pagina(1000, 5)];
+    const paginas = [pagina(0, 1000), pagina(1000, 5), pagina(1005, 0)];
     const linhas = await buscarTodas<number>(async () => paginas.shift()!);
     expect(linhas).toEqual(Array.from({ length: 1005 }, (_, i) => i));
   });
@@ -52,10 +75,11 @@ describe('buscarTodas', () => {
   });
 
   it('aceita uma consulta do Supabase, que só é executada quando recebe await (thenable)', async () => {
-    const consulta = (n: number): PromiseLike<ReturnType<typeof resposta>> => ({
-      then: (ok, falha) => Promise.resolve(resposta(n)).then(ok, falha),
+    const tamanhos = [7, 0];
+    const consulta = (): PromiseLike<ReturnType<typeof resposta>> => ({
+      then: (ok, falha) => Promise.resolve(resposta(tamanhos.shift() ?? 0)).then(ok, falha),
     });
-    expect(await buscarTodas(() => consulta(7))).toHaveLength(7);
+    expect(await buscarTodas(() => consulta())).toHaveLength(7);
   });
 });
 
@@ -65,11 +89,6 @@ describe('traduzirErroDoBanco', () => {
     code: '23505',
     message: 'duplicate key value violates unique constraint "pagamento_sessoes_sessao_id_key"',
     details: 'Key (sessao_id)=(11111111-1111-4111-8111-111111111111) already exists.',
-  };
-  const mesJaPago = {
-    code: '23505',
-    message: 'duplicate key value violates unique constraint "pagamentos_um_por_paciente_e_mes"',
-    details: 'Key (paciente_id, mes_referencia)=(11111111-1111-4111-8111-111111111111, 2026-10-01) already exists.',
   };
   const mesmaSessaoDuasVezes = {
     code: '23505',
@@ -83,28 +102,38 @@ describe('traduzirErroDoBanco', () => {
     details: 'Key is referenced from table "pagamento_sessoes".',
   };
 
-  it('sessão já paga (unique em sessao_id e chave repetida na mesma chamada)', () => {
-    expect(traduzirErroDoBanco(sessaoJaPaga).message).toBe('Esta sessão já foi paga.');
-    expect(traduzirErroDoBanco(mesmaSessaoDuasVezes).message).toBe('Esta sessão já foi paga.');
-  });
-
-  it('mês já pago', () => {
-    expect(traduzirErroDoBanco(mesJaPago).message).toBe('Este mês já foi pago.');
+  it('sessão já paga (unique em sessao_id e chave repetida na mesma chamada) vira uma recusa em português', () => {
+    for (const erro of [sessaoJaPaga, mesmaSessaoDuasVezes]) {
+      const traduzido = traduzirErroDoBanco(erro);
+      expect(traduzido).toBeInstanceOf(RecusaDoRepositorio);
+      expect(traduzido.message).toBe('Esta sessão já foi paga.');
+    }
   });
 
   it('sessão paga não pode ser removida', () => {
-    expect(traduzirErroDoBanco(sessaoPagaNaoSai).message).toBe('Esta sessão já foi paga e não pode ser removida.');
+    const traduzido = traduzirErroDoBanco(sessaoPagaNaoSai);
+    expect(traduzido).toBeInstanceOf(RecusaDoRepositorio);
+    expect(traduzido.message).toBe('Esta sessão já foi paga e não pode ser removida.');
+  });
+
+  it('a recusa levantada por uma função do banco (raise exception) chega com o texto dela', () => {
+    const levantada = { code: 'P0001', message: 'Escolha só sessões em aberto deste paciente.', details: null };
+    const traduzido = traduzirErroDoBanco(levantada);
+    expect(traduzido).toBeInstanceOf(RecusaDoRepositorio);
+    expect(traduzido.message).toBe('Escolha só sessões em aberto deste paciente.');
   });
 
   it('guarda o erro original como causa', () => {
-    expect(traduzirErroDoBanco(mesJaPago).cause).toBe(mesJaPago);
+    expect(traduzirErroDoBanco(sessaoJaPaga).cause).toBe(sessaoJaPaga);
   });
 
-  it('outros erros seguem com a mensagem do banco', () => {
+  it('outros erros seguem com a mensagem do banco, como erro comum (não recusa)', () => {
     const outro = { code: '23514', message: 'new row for relation "pagamentos" violates check constraint "x"' };
     expect(traduzirErroDoBanco(outro).message).toBe(outro.message);
+    expect(traduzirErroDoBanco(outro)).not.toBeInstanceOf(RecusaDoRepositorio);
     const outroUnico = { code: '23505', message: 'duplicate key value violates unique constraint "sessoes_horario_fixo_id_data_ocorrencia_key"' };
     expect(traduzirErroDoBanco(outroUnico).message).toBe(outroUnico.message);
+    expect(traduzirErroDoBanco(outroUnico)).not.toBeInstanceOf(RecusaDoRepositorio);
   });
 });
 
@@ -150,7 +179,7 @@ describe('repositório Supabase (o que ele pede ao cliente)', () => {
       data: Array.from({ length: n }, (_, i) => linhaDePagamento(de + i)),
       error: null,
     });
-    const { cliente, argumentosDe } = clienteFalso([pagina(0, 1000), pagina(1000, 3)]);
+    const { cliente, argumentosDe } = clienteFalso([pagina(0, 1000), pagina(1000, 3), pagina(1003, 0)]);
 
     const lista = await criarRepositorioSupabase(cliente).listarPagamentos({
       pacienteId: 'paciente-1',
@@ -163,6 +192,7 @@ describe('repositório Supabase (o que ele pede ao cliente)', () => {
     expect(argumentosDe('range')).toEqual([
       [0, 999],
       [1000, 1999],
+      [1003, 2002],
     ]);
     expect(argumentosDe('select')[0]).toEqual(['*, pagamento_sessoes(sessao_id)']);
     expect(argumentosDe('eq')[0]).toEqual(['paciente_id', 'paciente-1']);
@@ -232,19 +262,19 @@ describe('repositório Supabase (o que ele pede ao cliente)', () => {
         },
       },
     ]);
-    await expect(
-      criarRepositorioSupabase(cliente).registrarPagamento({
-        pacienteId: 'paciente-1',
-        data: '2026-10-20',
-        valorCentavos: 18000,
-        forma: 'pix',
-        observacao: null,
-        referencia: 'sessoes',
-        mesReferencia: null,
-        avaliacaoId: null,
-        sessaoIds: ['x'],
-      }),
-    ).rejects.toThrow('Esta sessão já foi paga.');
+    const recusa = criarRepositorioSupabase(cliente).registrarPagamento({
+      pacienteId: 'paciente-1',
+      data: '2026-10-20',
+      valorCentavos: 18000,
+      forma: 'pix',
+      observacao: null,
+      referencia: 'sessoes',
+      mesReferencia: null,
+      avaliacaoId: null,
+      sessaoIds: ['x'],
+    });
+    await expect(recusa).rejects.toThrow('Esta sessão já foi paga.');
+    await expect(recusa).rejects.toBeInstanceOf(RecusaDoRepositorio);
   });
 
   it('listarSessoesCobradas pede só as sessões com valor, com o paciente, em ordem total, página a página', async () => {
@@ -270,6 +300,7 @@ describe('repositório Supabase (o que ele pede ao cliente)', () => {
     const { cliente, argumentosDe } = clienteFalso([
       { data: Array.from({ length: 1000 }, (_, i) => linha(i, paciente)), error: null },
       { data: [linha(1000, null)], error: null },
+      { data: [], error: null },
     ]);
 
     const lista = await criarRepositorioSupabase(cliente).listarSessoesCobradas();
@@ -277,9 +308,13 @@ describe('repositório Supabase (o que ele pede ao cliente)', () => {
     expect(lista).toHaveLength(1001);
     expect(lista[0]).toMatchObject({ pacienteNome: 'Ana', responsavelPrincipal: { nome: 'Mariana', telefone: '' } });
     expect(lista[1000]).toMatchObject({ pacienteNome: '', responsavelPrincipal: null });
-    expect(argumentosDe('not')).toEqual([['valor_centavos', 'is', null], ['valor_centavos', 'is', null]]);
+    expect(argumentosDe('not')).toEqual([
+      ['valor_centavos', 'is', null],
+      ['valor_centavos', 'is', null],
+      ['valor_centavos', 'is', null],
+    ]);
     expect(argumentosDe('order').slice(0, 2)).toEqual([['inicio'], ['id']]);
-    expect(argumentosDe('range')).toEqual([[0, 999], [1000, 1999]]);
+    expect(argumentosDe('range')).toEqual([[0, 999], [1000, 1999], [1001, 2000]]);
   });
 
   it('removerPagamento apaga pelo id; apagar sessão paga mostra a mensagem em português', async () => {

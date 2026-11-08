@@ -1,8 +1,9 @@
-import { ERRO_MES_JA_PAGO, type Repositorio } from '../dados/repositorio';
+import type { Repositorio } from '../dados/repositorio';
 import type { DataISO, FormaPagamento, Id, Pagamento, Sessao } from '../dominio/tipos';
 import { novaSessaoDeRemarcacao } from '../regras/agenda';
 import { pendenciasDoPaciente } from '../regras/cobranca';
 import { formatarReais } from '../regras/dinheiro';
+import { ERRO_DATA_DEPOIS_DE_HOJE } from '../regras/formulariosCobranca';
 import { exigirFicha } from './comum';
 
 /** Recusa de uma operação de cobrança. A mensagem já é a que a interface mostra, do jeito que está. */
@@ -15,7 +16,8 @@ export class ErroCobranca extends Error {
 
 /**
  * O que a pessoa informa ao registrar um pagamento. O valor de sessões e de mês nunca vem dela:
- * sai dos valores guardados. Só na avaliação (parcelas) é ela quem diz quanto está pagando.
+ * sai dos valores guardados. No mês, `valorCentavos` é só o que a tela mostrou, para conferir que
+ * nada mudou desde então. Só na avaliação (parcelas) é ela quem diz quanto está pagando.
  */
 export type PedidoPagamento = {
   pacienteId: Id;
@@ -24,9 +26,14 @@ export type PedidoPagamento = {
   observacao: string | null;
 } & (
   | { referencia: 'sessoes'; sessaoIds: Id[] }
-  | { referencia: 'mes'; mes: DataISO }
+  | { referencia: 'mes'; mes: DataISO; valorCentavos: number }
   | { referencia: 'avaliacao'; valorCentavos: number }
 );
+
+/** O mês não tem mais nada a receber: os pagamentos dele já cobrem o total. */
+export const ERRO_MES_JA_PAGO = 'Este mês já foi pago.';
+/** O que falta do mês não é mais o que a tela mostrou (outro aparelho marcou uma sessão, por exemplo). */
+export const ERRO_VALOR_DO_MES_MUDOU = 'O valor do mês mudou. Confira e confirme de novo.';
 
 const SO_SESSOES_ABERTAS = 'Escolha só sessões em aberto deste paciente.';
 const MES_SEM_NADA = 'Este mês não tem nada a receber.';
@@ -34,10 +41,15 @@ const SEM_AVALIACAO = 'Este paciente não tem avaliação.';
 const SO_FALTA_NA_AVALIACAO = 'A reposição é só para falta sem aviso na avaliação.';
 
 /**
- * Registra o pagamento. O valor é calculado aqui, a partir do que está guardado (veja `PedidoPagamento`).
- * Erro de `ErroCobranca` quando o pedido não cabe no que o paciente deve.
+ * Registra o pagamento. O valor é calculado aqui, a partir do que está guardado (veja `PedidoPagamento`):
+ * - sessões: a soma das escolhidas, que precisam estar em aberto (uma sessão de um mês cobrado como mês não está);
+ * - mês: o que falta dele agora (o total, ou a diferença de um mês já pago), igual ao que a tela mostrou;
+ * - avaliação: o valor informado, até o que falta do pacote.
+ * Erro de `ErroCobranca`, antes de gravar qualquer coisa, quando o pedido não cabe no que o paciente deve ou a
+ * data é depois de `hoje`.
  */
 export async function registrarPagamento(repo: Repositorio, p: PedidoPagamento, hoje: DataISO): Promise<Pagamento> {
+  if (p.data > hoje) throw new ErroCobranca(ERRO_DATA_DEPOIS_DE_HOJE);
   const [{ paciente, avaliacao }, sessoes, pagamentos] = await Promise.all([
     exigirFicha(repo, p.pacienteId),
     repo.listarSessoesDoPaciente(p.pacienteId),
@@ -62,14 +74,17 @@ export async function registrarPagamento(repo: Repositorio, p: PedidoPagamento, 
     }
     case 'mes': {
       const mes = `${p.mes.slice(0, 7)}-01`;
+      // Só existe o mês cobrado como mês: o de quem paga por mês, ou um que já teve pagamento do mês.
       const cobranca = pendencias.meses.find((m) => m.mes === mes);
-      if (cobranca?.situacao === 'pago') throw new ErroCobranca(ERRO_MES_JA_PAGO);
-      if (cobranca === undefined || cobranca.totalCentavos <= 0) throw new ErroCobranca(MES_SEM_NADA);
+      if (cobranca === undefined) throw new ErroCobranca(MES_SEM_NADA);
+      // Mês sem pagamento sempre tem algo a receber; com pagamento, pode já estar coberto.
+      if (cobranca.faltaCentavos <= 0) throw new ErroCobranca(ERRO_MES_JA_PAGO);
+      if (p.valorCentavos !== cobranca.faltaCentavos) throw new ErroCobranca(ERRO_VALOR_DO_MES_MUDOU);
       return repo.registrarPagamento({
         ...base,
         ...semLigacoes,
         referencia: 'mes',
-        valorCentavos: cobranca.totalCentavos,
+        valorCentavos: cobranca.faltaCentavos,
         mesReferencia: mes,
       });
     }
@@ -90,7 +105,7 @@ export async function registrarPagamento(repo: Repositorio, p: PedidoPagamento, 
   }
 }
 
-/** Apaga o pagamento: as sessões e o mês que ele quitava voltam a ficar em aberto. */
+/** Apaga o pagamento: as sessões que ele quitava, ou o que ele pagou do mês, voltam a ficar em aberto. */
 export async function removerPagamento(repo: Repositorio, id: Id): Promise<void> {
   await repo.removerPagamento(id);
 }

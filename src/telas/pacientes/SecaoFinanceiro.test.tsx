@@ -1,7 +1,8 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import { criarRepositorioMemoria } from '../../dados/memoria';
-import type { Repositorio } from '../../dados/repositorio';
+import { RecusaDoRepositorio, type Repositorio } from '../../dados/repositorio';
 import { sementeDemo } from '../../dados/semente-demo';
+import type { Pagamento } from '../../dominio/tipos';
 import { instanteDe } from '../../regras/datas';
 import { sessaoExemplo } from '../../testes/fabricas';
 import { abrirFicha, ANA, HOJE, LUCAS, MARIA, PEDRO, repositorioDemo, usarHojeFixo } from '../../testes/ficha';
@@ -38,6 +39,29 @@ function repositorioDaAnaComNovembro(): Repositorio {
     valorCentavos: 20000,
   });
   return criarRepositorioMemoria({ ...semente, sessoes: [...semente.sessoes, sessaoDeNovembro] });
+}
+
+/** Um pagamento do mês da Ana já feito (outubro, por padrão). */
+function pagamentoDoMesDaAna(valorCentavos: number, sobre: Partial<Pagamento> = {}): Pagamento {
+  return {
+    id: 'ana-mes',
+    pacienteId: ANA,
+    data: '2026-10-28',
+    valorCentavos,
+    forma: 'pix',
+    observacao: null,
+    referencia: 'mes',
+    mesReferencia: '2026-10-01',
+    avaliacaoId: null,
+    sessaoIds: [],
+    ...sobre,
+  };
+}
+
+/** Ana com outubro pago antes da última terça ser marcada: pagou R$ 600,00 de R$ 800,00. */
+function repositorioDaAnaComDiferenca(): Repositorio {
+  const semente = sementeDemo(HOJE);
+  return criarRepositorioMemoria({ ...semente, pagamentos: [...semente.pagamentos, pagamentoDoMesDaAna(60000)] });
 }
 
 /** Maria sem nenhum pagamento: as duas quintas de outubro (22 e 29) em aberto. */
@@ -174,14 +198,108 @@ describe('SecaoFinanceiro', () => {
       await usuaria.click(within(screen.getByRole('navigation', { name: 'Principal' })).getByRole('link', { name: 'Pacientes' }));
       await usuaria.click(await screen.findByRole('link', { name: /Ana Clara Souza/ }));
       const fichaDeNovo = await screen.findByRole('region', { name: 'Financeiro' });
-      expect(
-        await within(fichaDeNovo).findByText('O valor de outubro de 2026 mudou depois do pagamento: diferença de -R$ 200,00.'),
-      ).toBeInTheDocument();
+      const aviso = await within(fichaDeNovo).findByText('O valor de outubro de 2026 mudou depois do pagamento. Pago a mais: R$ 200,00.');
+      // Chama a atenção sem interromper a leitura a cada vez que a ficha abre.
+      expect(aviso).toHaveAttribute('role', 'status');
       const outubro = linhaDoMes(fichaDeNovo, 'outubro de 2026');
       expect(outubro).toHaveTextContent('outubro de 2026 · 3 sessões · R$ 600,00');
       expect(within(outubro).getByText('Pago')).toBeInTheDocument();
-      // O aviso é só informação: o que está em aberto não muda.
+      expect(within(outubro).queryByRole('button', { name: /^Registrar/ })).not.toBeInTheDocument();
+      // Pago a mais não é dívida: o que está em aberto não muda.
       expect(within(fichaDeNovo).getByText('Nada em aberto.')).toBeInTheDocument();
+    });
+
+    it('mês pago com uma sessão a mais depois: mostra o que foi pago e o que falta, e paga a diferença uma vez', async () => {
+      const { financeiro, usuaria, repositorio } = await abrirFinanceiro(ANA, repositorioDaAnaComDiferenca());
+
+      expect(within(financeiro).getByText('Em aberto: R$ 200,00')).toBeInTheDocument();
+      const outubro = linhaDoMes(financeiro, 'outubro de 2026');
+      expect(outubro).toHaveTextContent('outubro de 2026 · 4 sessões · R$ 800,00');
+      // Outubro já terminou e ainda falta receber: está devendo, não "Pago".
+      expect(within(outubro).getByText('Devendo')).toBeInTheDocument();
+      const aviso = within(outubro).getByText(
+        'O valor de outubro de 2026 mudou depois do pagamento. Pago: R$ 600,00. Falta receber: R$ 200,00.',
+      );
+      expect(aviso).toHaveAttribute('role', 'status');
+      expect(within(outubro).queryByRole('button', { name: 'Registrar pagamento do mês' })).not.toBeInTheDocument();
+
+      await usuaria.click(within(outubro).getByRole('button', { name: 'Registrar pagamento da diferença' }));
+      const formulario = within(financeiro).getByRole('form', { name: 'Diferença de outubro de 2026' });
+      expect(within(formulario).getByText('Valor: R$ 200,00')).toBeInTheDocument();
+      await usuaria.click(within(formulario).getByRole('button', { name: 'Confirmar pagamento' }));
+
+      expect(await within(financeiro).findByText('Nada em aberto.')).toBeInTheDocument();
+      const depois = linhaDoMes(financeiro, 'outubro de 2026');
+      expect(within(depois).getByText('Pago')).toBeInTheDocument();
+      expect(within(depois).queryByText(/mudou depois do pagamento/)).not.toBeInTheDocument();
+      expect(within(depois).queryByRole('button', { name: /^Registrar/ })).not.toBeInTheDocument();
+      expect(within(financeiro).getByText('02/11/2026 · Pix · R$ 200,00 · Mensalidade de outubro de 2026')).toBeInTheDocument();
+      expect((await repositorio.listarPagamentos({ pacienteId: ANA })).map((p) => [p.mesReferencia, p.valorCentavos])).toEqual([
+        ['2026-10-01', 60000],
+        ['2026-10-01', 20000],
+      ]);
+    });
+
+    it('mês pago no meio do mês: a sessão marcada depois fica em aberto, entra no "A receber" e é paga uma vez', async () => {
+      const { financeiro, usuaria, repositorio } = await abrirFinanceiro(ANA, repositorioDaAnaComNovembro());
+      // Paga novembro com a única sessão marcada até agora (segunda 02/11).
+      await usuaria.click(within(linhaDoMes(financeiro, 'novembro de 2026')).getByRole('button', { name: 'Registrar pagamento do mês' }));
+      await usuaria.click(within(financeiro).getByRole('button', { name: 'Confirmar pagamento' }));
+      await waitFor(() => expect(within(linhaDoMes(financeiro, 'novembro de 2026')).getByText('Pago')).toBeInTheDocument());
+
+      // Na agenda, a terça 03/11 da Ana vira "Compareceu".
+      const menu = screen.getByRole('navigation', { name: 'Principal' });
+      await usuaria.click(within(menu).getByRole('link', { name: 'Agenda' }));
+      const terca = await screen.findByRole('region', { name: /terça-feira, 03\/11/i });
+      await usuaria.click(await within(terca).findByRole('button', { name: /Ana Clara Souza/ }));
+      const painel = await screen.findByRole('dialog', { name: 'Ana Clara Souza' });
+      await usuaria.click(within(painel).getByRole('button', { name: 'Compareceu' }));
+      expect(await within(painel).findByText('Entra na mensalidade de novembro de 2026')).toBeInTheDocument();
+      await usuaria.keyboard('{Escape}');
+
+      // No Financeiro, a Ana deve outubro e a diferença de novembro.
+      await usuaria.click(within(menu).getByRole('link', { name: 'Financeiro' }));
+      const aReceber = await screen.findByRole('region', { name: 'A receber' });
+      expect(await within(aReceber).findByRole('link', { name: /Ana Clara Souza/ })).toHaveTextContent(/1\.000,00/);
+
+      // Na ficha, novembro está em andamento com a diferença, que é paga uma vez só.
+      await usuaria.click(within(aReceber).getByRole('link', { name: /Ana Clara Souza/ }));
+      const fichaDeNovo = await screen.findByRole('region', { name: 'Financeiro' });
+      const novembro = await waitFor(() => linhaDoMes(fichaDeNovo, 'novembro de 2026'));
+      expect(within(novembro).getByText('Em andamento')).toBeInTheDocument();
+      expect(
+        within(novembro).getByText('O valor de novembro de 2026 mudou depois do pagamento. Pago: R$ 200,00. Falta receber: R$ 200,00.'),
+      ).toBeInTheDocument();
+      await usuaria.click(within(novembro).getByRole('button', { name: 'Registrar pagamento da diferença' }));
+      await usuaria.click(within(fichaDeNovo).getByRole('button', { name: 'Confirmar pagamento' }));
+
+      expect(await within(fichaDeNovo).findByText('Em aberto: R$ 800,00')).toBeInTheDocument();
+      expect(within(linhaDoMes(fichaDeNovo, 'novembro de 2026')).getByText('Pago')).toBeInTheDocument();
+      expect(within(linhaDoMes(fichaDeNovo, 'novembro de 2026')).queryByRole('button', { name: /^Registrar/ })).not.toBeInTheDocument();
+      const deNovembro = (await repositorio.listarPagamentos({ pacienteId: ANA })).filter((p) => p.mesReferencia === '2026-11-01');
+      expect(deNovembro.map((p) => p.valorCentavos)).toEqual([20000, 20000]);
+    });
+
+    it('se o valor do mês mudou desde que a tela o mostrou (outro aparelho), recusa e mostra o valor novo para confirmar', async () => {
+      const { financeiro, usuaria, repositorio } = await abrirFinanceiro(ANA);
+      await usuaria.click(within(financeiro).getByRole('button', { name: 'Registrar pagamento do mês' }));
+      const formulario = within(financeiro).getByRole('form', { name: 'Pagamento de outubro de 2026' });
+      expect(within(formulario).getByText('Valor: R$ 800,00')).toBeInTheDocument();
+
+      // Enquanto isso, outro aparelho marca mais uma sessão em outubro.
+      await repositorio.criarSessao({
+        ...sessaoExemplo({ pacienteId: ANA, inicio: instanteDe('2026-10-30', '10:00'), situacao: 'compareceu', valorCentavos: 20000 }),
+      });
+      await usuaria.click(within(formulario).getByRole('button', { name: 'Confirmar pagamento' }));
+
+      expect(await within(formulario).findByText('O valor do mês mudou. Confira e confirme de novo.')).toBeInTheDocument();
+      expect(await repositorio.listarPagamentos({ pacienteId: ANA })).toEqual([]);
+      // O formulário continua aberto, agora com o valor de verdade.
+      expect(await within(formulario).findByText('Valor: R$ 1.000,00')).toBeInTheDocument();
+      await usuaria.click(within(formulario).getByRole('button', { name: 'Confirmar pagamento' }));
+
+      expect(await within(financeiro).findByText('Nada em aberto.')).toBeInTheDocument();
+      expect((await repositorio.listarPagamentos({ pacienteId: ANA })).map((p) => p.valorCentavos)).toEqual([100000]);
     });
   });
 
@@ -255,6 +373,19 @@ describe('SecaoFinanceiro', () => {
       expect(pagamentos).toEqual([
         expect.objectContaining({ referencia: 'sessoes', valorCentavos: 36000, sessaoIds: ['demo-sessao-maria-1', 'demo-sessao-maria-2'] }),
       ]);
+    });
+
+    it('quando o banco recusa (outro aparelho acabou de pagar a sessão), mostra a recusa, não "tente de novo"', async () => {
+      const base = repositorioDemo();
+      const registrarPagamento = vi.fn().mockRejectedValue(new RecusaDoRepositorio('Esta sessão já foi paga.'));
+      const { financeiro, usuaria } = await abrirFinanceiro(MARIA, { ...base, registrarPagamento });
+
+      await usuaria.click(within(financeiro).getByRole('checkbox', { name: /29\/10\/2026/ }));
+      await usuaria.click(within(financeiro).getByRole('button', { name: 'Registrar pagamento das marcadas' }));
+      await usuaria.click(within(financeiro).getByRole('button', { name: 'Confirmar pagamento' }));
+
+      expect(await within(financeiro).findByText('Esta sessão já foi paga.')).toBeInTheDocument();
+      expect(within(financeiro).queryByText(/Tente de novo/)).not.toBeInTheDocument();
     });
 
     it('pagar só uma das duas deixa a outra em aberto', async () => {
@@ -333,6 +464,36 @@ describe('SecaoFinanceiro', () => {
       expect(await within(financeiro).findByText('Valor final R$ 1.620,00 · Pago R$ 1.110,00 · Falta R$ 510,00')).toBeInTheDocument();
       expect(within(financeiro).getByText('Em aberto: R$ 510,00')).toBeInTheDocument();
       expect(within(financeiro).getByRole('button', { name: 'Registrar parcela' })).toBeInTheDocument();
+    });
+
+    it('com o pagamento a caminho, nada o desfaz: "Cancelar" e os outros botões ficam desligados e não sai uma segunda parcela', async () => {
+      const base = repositorioDemo();
+      let terminar: () => void = () => undefined;
+      const registrarPagamento = vi.fn(async (p: Parameters<Repositorio['registrarPagamento']>[0]) => {
+        await new Promise<void>((resolver) => {
+          terminar = resolver;
+        });
+        return base.registrarPagamento(p);
+      });
+      const { financeiro, usuaria, repositorio } = await abrirFinanceiro(PEDRO, { ...base, registrarPagamento });
+
+      await usuaria.click(within(financeiro).getByRole('button', { name: 'Registrar parcela' }));
+      const valor = within(financeiro).getByLabelText('Valor');
+      await usuaria.clear(valor);
+      await usuaria.type(valor, '300');
+      await usuaria.click(within(financeiro).getByRole('button', { name: 'Confirmar pagamento' }));
+
+      const registrando = await within(financeiro).findByRole('button', { name: 'Registrando…' });
+      expect(registrando).toBeDisabled();
+      expect(within(financeiro).getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+      await usuaria.click(within(financeiro).getByRole('button', { name: 'Cancelar' }));
+      await usuaria.click(registrando);
+      expect(within(financeiro).getByRole('form', { name: 'Parcela da avaliação' })).toBeInTheDocument();
+
+      terminar();
+      expect(await within(financeiro).findByText('Valor final R$ 1.620,00 · Pago R$ 1.110,00 · Falta R$ 510,00')).toBeInTheDocument();
+      expect(registrarPagamento).toHaveBeenCalledTimes(1);
+      expect((await repositorio.listarPagamentos({ pacienteId: PEDRO })).map((p) => p.valorCentavos)).toEqual([81000, 30000]);
     });
 
     it.each(['0', '0,00', 'abc'])('parcela de "%s": avisa no campo, sem chamar o serviço', async (digitado) => {

@@ -3,9 +3,11 @@ import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { Provedores } from '../Provedores';
 import { ANA, HOJE, LUCAS, MARIA, PEDRO, repositorioDemo, usarHojeFixo } from '../testes/ficha';
+import { sessaoExemplo } from '../testes/fabricas';
 import { criarRepositorioMemoria } from './memoria';
 import { sementeDemo } from './semente-demo';
-import type { Repositorio } from './repositorio';
+import { RecusaDoRepositorio, type Repositorio } from './repositorio';
+import { traduzirErroDoBanco } from './supabase';
 import { ErroCobranca, type PedidoPagamento } from '../servicos/cobranca';
 import {
   mensagemDoErro,
@@ -44,6 +46,24 @@ describe('mensagemDoErro', () => {
     expect(mensagemDoErro(new ErroCobranca('Este mês não tem nada a receber.'), 'Tente de novo.')).toBe(
       'Este mês não tem nada a receber.',
     );
+  });
+
+  it('mostra a recusa do repositório (da memória ou do banco) do jeito que está, sem "tente de novo"', () => {
+    expect(mensagemDoErro(new RecusaDoRepositorio('Esta sessão já foi paga.'), 'Tente de novo.')).toBe('Esta sessão já foi paga.');
+    // Como chega do Supabase quando outro aparelho pagou a mesma sessão no mesmo instante.
+    const doBanco = traduzirErroDoBanco({
+      code: '23505',
+      message: 'duplicate key value violates unique constraint "pagamento_sessoes_sessao_id_key"',
+      details: 'Key (sessao_id)=(x) already exists.',
+    });
+    expect(mensagemDoErro(doBanco, 'Tente de novo.')).toBe('Esta sessão já foi paga.');
+    const levantadaPelaFuncao = traduzirErroDoBanco({ code: 'P0001', message: 'Escolha só sessões em aberto deste paciente.' });
+    expect(mensagemDoErro(levantadaPelaFuncao, 'Tente de novo.')).toBe('Escolha só sessões em aberto deste paciente.');
+  });
+
+  it('um erro técnico do banco continua escondido atrás da mensagem padrão', () => {
+    const tecnico = traduzirErroDoBanco({ code: '23514', message: 'new row violates check constraint "x"' });
+    expect(mensagemDoErro(tecnico, 'Tente de novo.')).toBe('Tente de novo.');
   });
 
   it.each([new Error('sem rede'), 'texto', null])('esconde o erro técnico %s atrás da mensagem padrão', (erro) => {
@@ -209,6 +229,59 @@ describe('useAReceber', () => {
     });
 
     await waitFor(() => expect(result.current.aReceber.data?.map((i) => i.paciente.id)).toEqual([ANA, PEDRO]));
+  });
+
+  it('mês pago antes de uma sessão a mais: a diferença entra no a receber, com o desde do mês', async () => {
+    const semente = sementeDemo(HOJE);
+    const outubroPago = {
+      id: 'outubro-da-ana',
+      pacienteId: ANA,
+      data: '2026-10-28',
+      valorCentavos: 60000,
+      forma: 'pix' as const,
+      observacao: null,
+      referencia: 'mes' as const,
+      mesReferencia: '2026-10-01',
+      avaliacaoId: null,
+      sessaoIds: [],
+    };
+    const repositorio = criarRepositorioMemoria({ ...semente, pagamentos: [...semente.pagamentos, outubroPago] });
+    const { result } = montar(() => useAReceber(), repositorio);
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(result.current.data?.find((i) => i.paciente.id === ANA)).toMatchObject({ totalCentavos: 20000, desde: '2026-10-01' });
+  });
+
+  it('mudar a Ana para "por sessão" depois de pagar outubro não a faz voltar a dever', async () => {
+    const semente = sementeDemo(HOJE);
+    const repositorio = criarRepositorioMemoria({
+      ...semente,
+      pacientes: semente.pacientes.map((p) => (p.id === ANA ? { ...p, formaCobranca: 'por_sessao' as const } : p)),
+      pagamentos: [
+        ...semente.pagamentos,
+        {
+          id: 'outubro-da-ana',
+          pacienteId: ANA,
+          data: '2026-11-02',
+          valorCentavos: 80000,
+          forma: 'pix',
+          observacao: null,
+          referencia: 'mes',
+          mesReferencia: '2026-10-01',
+          avaliacaoId: null,
+          sessaoIds: [],
+        },
+      ],
+      // Uma sessão de novembro, já como "por sessão": essa sim é cobrada sozinha.
+      sessoes: [
+        ...semente.sessoes,
+        sessaoExemplo({ id: 'ana-nov', pacienteId: ANA, inicio: '2026-11-02T13:00:00.000Z', situacao: 'compareceu', valorCentavos: 20000 }),
+      ],
+    });
+    const { result } = montar(() => useAReceber(), repositorio);
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(result.current.data?.find((i) => i.paciente.id === ANA)).toMatchObject({ totalCentavos: 20000, desde: '2026-11-02' });
   });
 
   it('se a consulta falha, avisa o erro', async () => {

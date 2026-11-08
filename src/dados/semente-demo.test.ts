@@ -182,7 +182,7 @@ describe('sementeDemo: cobrança (hoje = 2026-11-02)', () => {
 
     const { meses, totalEmAbertoCentavos } = pendencias('Ana Clara Souza');
     expect(meses).toHaveLength(1);
-    expect(meses[0]).toMatchObject({ mes: '2026-10-01', situacao: 'devendo', totalCentavos: 80000, pagamento: null });
+    expect(meses[0]).toMatchObject({ mes: '2026-10-01', situacao: 'devendo', totalCentavos: 80000, pagamentos: [], faltaCentavos: 80000 });
     expect(totalEmAbertoCentavos).toBe(80000);
   });
 

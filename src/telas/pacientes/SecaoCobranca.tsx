@@ -41,6 +41,14 @@ export function SecaoCobranca({ paciente }: { paciente: Paciente }) {
           avaliação.
         </p>
       )}
+      {/* Um valor deixado em branco vira R$ 0,00, e sessão de valor zero não é cobrada: melhor ela saber. */}
+      {paciente.valorSessaoCentavos === 0 && (
+        <Aviso tipo="atencao">
+          {paciente.tipo === 'avaliacao'
+            ? `O valor da sessão está em ${formatarReais(0)}: uma falta sem aviso na avaliação não é cobrada.`
+            : `O valor da sessão está em ${formatarReais(0)}: as sessões deste paciente não são cobradas.`}
+        </Aviso>
+      )}
       <form noValidate onSubmit={aoEnviar} className="flex flex-col gap-4">
         <CamposCobranca valores={valores} erros={erros} aoMudar={alterar} />
         {salvar.isError && <Aviso tipo="erro">Não foi possível salvar. Tente de novo.</Aviso>}
