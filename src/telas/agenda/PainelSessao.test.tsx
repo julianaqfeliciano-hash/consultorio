@@ -77,6 +77,18 @@ describe('PainelSessao — atalho para o registro', () => {
     },
   );
 
+  it('se o registro não carrega, esconde o atalho e o resto do painel funciona', async () => {
+    const repositorio = repositorioCom(sessaoExemplo({ situacao: 'compareceu' }));
+    const obter = vi.spyOn(repositorio, 'obterRegistro').mockRejectedValue(new Error('sem rede'));
+    abrirPainel(repositorio);
+
+    await screen.findByText('terça-feira, 03/11 · 14:00 · 50 min');
+    await waitFor(() => expect(obter).toHaveBeenCalled());
+    expect(screen.queryByRole('link', { name: /registro/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Voltar para Agendada' })).toBeEnabled();
+    expect(screen.getByRole('checkbox', { name: /Acompanhamento familiar/ })).toBeInTheDocument();
+  });
+
   it('o atalho leva a /agenda/sessoes/:id/registro', async () => {
     abrirPainel(repositorioCom(sessaoExemplo({ situacao: 'compareceu' })));
 

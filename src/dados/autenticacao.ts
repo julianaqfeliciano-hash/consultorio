@@ -104,9 +104,11 @@ export function criarAutenticacaoSupabase(cliente: SupabaseClient): Autenticacao
         if (error) throw error;
       } catch (erro) {
         throw traduzirErroDeAutenticacao(erro);
+      } finally {
+        // Rascunho de registro é dado de paciente guardado no aparelho: não pode sobreviver ao "Sair",
+        // nem quando o Supabase não consegue encerrar a sessão.
+        apagarTodosOsRascunhos();
       }
-      // Rascunho de registro é dado de paciente guardado no aparelho: não pode sobreviver ao "Sair".
-      apagarTodosOsRascunhos();
     },
     aoMudar(cb) {
       const {

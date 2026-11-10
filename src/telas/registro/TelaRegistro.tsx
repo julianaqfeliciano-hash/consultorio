@@ -13,7 +13,7 @@ import { useFicha } from '../../dados/useFicha';
 import { useRegistro, useResumir, useSalvarRegistro, useSessao } from '../../dados/useRegistro';
 import type { CamposRegistro, RegistroSessao } from '../../dominio/tipos';
 import { dataLocal, formatarData, horaLocal } from '../../regras/datas';
-import { registroVazio } from '../../regras/registro';
+import { anonimizar, registroVazio, type Pessoas } from '../../regras/registro';
 import { BotaoDitar } from './BotaoDitar';
 
 const ESPERA_DO_RASCUNHO_MS = 500;
@@ -40,10 +40,28 @@ interface Estado {
   campos: CamposRegistro;
 }
 
-/** Rascunho do aparelho se houver (é o mais novo); senão o registro salvo; senão tudo vazio. */
+/** A mesma tela: o mesmo texto ditado e os mesmos quatro campos. */
+function mesmoEstado(a: Estado, b: Estado): boolean {
+  return (
+    a.textoFalado === b.textoFalado &&
+    a.campos.comoChegou === b.campos.comoChegou &&
+    a.campos.trabalhado === b.campos.trabalhado &&
+    a.campos.observacoes === b.campos.observacoes &&
+    a.campos.proximosPassos === b.campos.proximosPassos
+  );
+}
+
+/**
+ * O rascunho do aparelho, se for mais novo que o registro salvo (que pode ter vindo de outro aparelho); senão o
+ * registro salvo; senão tudo vazio. O rascunho mais velho fica guardado até salvar ou sair.
+ */
 function estadoInicial(sessaoId: string, registro: RegistroSessao | null) {
   const rascunho = lerRascunho(sessaoId);
-  if (rascunho) return { estado: { textoFalado: rascunho.textoFalado, campos: rascunho.campos }, recuperado: true };
+  const rascunhoMaisNovo =
+    rascunho !== null && (!registro || Date.parse(rascunho.atualizadoEm) > Date.parse(registro.atualizadoEm));
+  if (rascunho && rascunhoMaisNovo) {
+    return { estado: { textoFalado: rascunho.textoFalado, campos: rascunho.campos }, recuperado: true };
+  }
   if (registro) {
     const { textoFalado, comoChegou, trabalhado, observacoes, proximosPassos } = registro;
     return { estado: { textoFalado, campos: { comoChegou, trabalhado, observacoes, proximosPassos } }, recuperado: false };
@@ -63,6 +81,12 @@ function Formulario({ sessao, registro }: { sessao: SessaoComPaciente; registro:
   const [recusaDeSalvar, setRecusaDeSalvar] = useState(false);
   const [confirmando, setConfirmando] = useState(false);
 
+  // O ditado e o fim do salvar leem sempre o estado mais novo por aqui.
+  const estadoAtual = useRef(estado);
+  useEffect(() => {
+    estadoAtual.current = estado;
+  });
+
   // Guarda o rascunho 500 ms depois da última mudança; ao sair da tela, grava o que estiver pendente.
   const pendente = useRef<{ timer: ReturnType<typeof setTimeout>; estado: Estado } | null>(null);
   function descartarPendente() {
@@ -70,6 +94,7 @@ function Formulario({ sessao, registro }: { sessao: SessaoComPaciente; registro:
     pendente.current = null;
   }
   function mudar(novo: Estado) {
+    estadoAtual.current = novo;
     setEstado(novo);
     setSalvo(false);
     setRecusaDeSalvar(false);
@@ -91,28 +116,22 @@ function Formulario({ sessao, registro }: { sessao: SessaoComPaciente; registro:
   );
 
   // O ditado chama esta função de dentro do reconhecedor: ela lê sempre o estado mais novo.
-  const estadoAtual = useRef(estado);
-  useEffect(() => {
-    estadoAtual.current = estado;
-  });
   function acrescentar(texto: string) {
     const atual = estadoAtual.current;
     const junto = atual.textoFalado.trim() === '' ? texto : `${atual.textoFalado.replace(/\s+$/, '')} ${texto}`;
-    const novo = { ...atual, textoFalado: junto };
-    estadoAtual.current = novo;
-    mudar(novo);
+    mudar({ ...atual, textoFalado: junto });
   }
+
+  // Quem tem o nome trocado antes de o texto sair do aparelho. A prévia e o Resumir usam as mesmas pessoas.
+  const pessoas: Pessoas = {
+    paciente: sessao.pacienteNome,
+    responsaveis: (ficha.data?.responsaveis ?? []).map((r) => r.nome),
+  };
 
   function executarResumo() {
     setConfirmando(false);
     resumir.mutate(
-      {
-        texto: estado.textoFalado,
-        pessoas: {
-          paciente: sessao.pacienteNome,
-          responsaveis: (ficha.data?.responsaveis ?? []).map((r) => r.nome),
-        },
-      },
+      { texto: estado.textoFalado, pessoas },
       { onSuccess: (campos) => mudar({ ...estadoAtual.current, campos }) },
     );
   }
@@ -127,10 +146,14 @@ function Formulario({ sessao, registro }: { sessao: SessaoComPaciente; registro:
       setRecusaDeSalvar(true);
       return;
     }
+    const enviado: Estado = { textoFalado: estado.textoFalado, campos: estado.campos };
     salvar.mutate(
-      { sessaoId, pacienteId: sessao.pacienteId, textoFalado: estado.textoFalado, campos: estado.campos },
+      { sessaoId, pacienteId: sessao.pacienteId, ...enviado },
       {
         onSuccess: () => {
+          // Mudou algo na tela enquanto salvava (ditado, digitação): o que mudou ainda não está salvo, então o
+          // rascunho fica e não há aviso de salvo.
+          if (!mesmoEstado(estadoAtual.current, enviado)) return;
           descartarPendente();
           apagarRascunho(sessaoId);
           setRecuperado(false);
@@ -166,6 +189,19 @@ function Formulario({ sessao, registro }: { sessao: SessaoComPaciente; registro:
               {resumir.isPending ? 'Resumindo…' : 'Resumir'}
             </Botao>
           </div>
+          {ficha.isError && (
+            <Aviso tipo="erro">Não foi possível carregar os responsáveis; o resumo fica desligado.</Aviso>
+          )}
+          {ficha.data && (
+            <details className="w-full">
+              <summary className="min-h-11 cursor-pointer py-2 font-semibold underline">
+                Ver o texto que vai para o Claude
+              </summary>
+              <p className="font-texto whitespace-pre-wrap rounded-lg border-2 border-petroleo/30 px-3 py-2">
+                {estado.textoFalado.trim() === '' ? 'Nada escrito ainda.' : anonimizar(estado.textoFalado, pessoas).texto}
+              </p>
+            </details>
+          )}
           {mensagemDoErro && (
             <>
               <Aviso tipo="erro">{mensagemDoErro}</Aviso>
@@ -181,6 +217,7 @@ function Formulario({ sessao, registro }: { sessao: SessaoComPaciente; registro:
               key={chave}
               rotulo={rotulo}
               rows={4}
+              readOnly={resumir.isPending}
               value={estado.campos[chave]}
               onChange={(e) => mudar({ ...estado, campos: { ...estado.campos, [chave]: e.target.value } })}
             />
@@ -190,7 +227,7 @@ function Formulario({ sessao, registro }: { sessao: SessaoComPaciente; registro:
       {salvo && <Aviso tipo="sucesso">Registro salvo.</Aviso>}
       {recusaDeSalvar && <Aviso tipo="erro">Escreva o registro ou resuma o texto antes de salvar.</Aviso>}
       {salvar.isError && <Aviso tipo="erro">Não foi possível salvar o registro. Tente de novo.</Aviso>}
-      <Botao disabled={salvar.isPending} onClick={gravar} className="self-start">
+      <Botao disabled={salvar.isPending || resumir.isPending} onClick={gravar} className="self-start">
         {salvar.isPending ? 'Salvando…' : 'Salvar registro'}
       </Botao>
       {confirmando && (

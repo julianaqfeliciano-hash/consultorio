@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { criarRepositorioMemoria } from '../../dados/memoria';
 import { MENSAGEM_DO_RESUMO, ErroResumo, type Resumidor } from '../../dados/resumidor';
@@ -114,6 +114,16 @@ describe('TelaRegistro', () => {
     expect(screen.getByText('Rascunho recuperado deste aparelho.')).toBeInTheDocument();
   });
 
+  it('abre com o registro salvo quando ele é mais novo que o rascunho deste aparelho', async () => {
+    // Rascunho velho, deixado neste aparelho; o registro foi salvo depois, em outro aparelho.
+    const velho = { textoFalado: 'rascunho velho', campos: { ...CAMPOS, comoChegou: 'Velho.' }, atualizadoEm: '2026-11-02T10:00:00.000Z' };
+    localStorage.setItem('consultorio:rascunho-registro:s1', JSON.stringify(velho));
+    await abrir({ repositorio: repositorio([registroSalvo({ atualizadoEm: '2026-11-03T18:00:00.000Z' })]) });
+    expect(area()).toHaveValue('texto antigo');
+    expect(campo('Como chegou')).toHaveValue('Chegou cansada.');
+    expect(screen.queryByText('Rascunho recuperado deste aparelho.')).not.toBeInTheDocument();
+  });
+
   it('abre com o registro salvo quando não há rascunho', async () => {
     await abrir({ repositorio: repositorio([registroSalvo()]) });
     expect(area()).toHaveValue('texto antigo');
@@ -176,6 +186,86 @@ describe('TelaRegistro', () => {
     await usuaria.click(botao('Resumir'));
     await usuaria.click(await screen.findByRole('button', { name: 'Substituir' }));
     await waitFor(() => expect(campo('Como chegou')).toHaveValue('Chegou bem.'));
+  });
+
+  it('se a tela mudou enquanto salvava, não diz Registro salvo. e mantém o rascunho', async () => {
+    const repo = repositorio();
+    const original = repo.salvarRegistro.bind(repo);
+    let liberar: (() => void) | undefined;
+    vi.spyOn(repo, 'salvarRegistro').mockImplementation(async (id, dados) => {
+      await new Promise<void>((r) => (liberar = r));
+      return original(id, dados);
+    });
+    const { usuaria } = await abrir({ repositorio: repo });
+    await usuaria.type(campo('Observações'), 'Primeira parte.');
+    await usuaria.click(botao('Salvar registro'));
+    await waitFor(() => expect(liberar).toBeDefined());
+    await usuaria.type(campo('Observações'), ' Segunda parte.');
+    liberar!();
+
+    await waitFor(() => expect(botao('Salvar registro')).toBeEnabled());
+    expect(await repo.obterRegistro('s1')).toMatchObject({ observacoes: 'Primeira parte.' });
+    expect(screen.queryByText('Registro salvo.')).not.toBeInTheDocument();
+    expect(campo('Observações')).toHaveValue('Primeira parte. Segunda parte.');
+    await waitFor(() => expect(lerRascunho('s1')?.campos.observacoes).toBe('Primeira parte. Segunda parte.'));
+  });
+
+  it('enquanto resume, Salvar registro fica desligado', async () => {
+    let entregar: ((c: CamposRegistro) => void) | undefined;
+    const resumidor = resumidorQue(() => new Promise<CamposRegistro>((r) => (entregar = r)));
+    const { usuaria } = await abrir({ repositorio: repositorio(), resumidor });
+    await ditar(usuaria, 'Algo.');
+    await usuaria.click(botao('Resumir'));
+    await screen.findByRole('button', { name: 'Resumindo…' });
+    expect(botao('Salvar registro')).toBeDisabled();
+
+    entregar!(CAMPOS);
+    await waitFor(() => expect(campo('Como chegou')).toHaveValue('Chegou cansada.'));
+    expect(botao('Salvar registro')).toBeEnabled();
+  });
+
+  it('enquanto resume, os quatro campos ficam só para leitura', async () => {
+    let entregar: ((c: CamposRegistro) => void) | undefined;
+    const resumidor = resumidorQue(() => new Promise<CamposRegistro>((r) => (entregar = r)));
+    const { usuaria } = await abrir({ repositorio: repositorio(), resumidor });
+    await ditar(usuaria, 'Algo.');
+    await usuaria.click(botao('Resumir'));
+    await screen.findByRole('button', { name: 'Resumindo…' });
+    const nomes = ['Como chegou', 'O que foi trabalhado', 'Observações', 'Próximos passos'];
+    for (const nome of nomes) expect(campo(nome)).toHaveAttribute('readonly');
+    await usuaria.type(campo('Observações'), 'escrito durante o resumo');
+    expect(campo('Observações')).toHaveValue('');
+
+    entregar!(CAMPOS);
+    await waitFor(() => expect(campo('Observações')).toHaveValue('Falou da escola.'));
+    for (const nome of nomes) expect(campo(nome)).not.toHaveAttribute('readonly');
+  });
+
+  it('Ver o texto que vai para o Claude mostra o texto com [P] e sem o nome', async () => {
+    const resumidor = resumidorFalso();
+    const { usuaria } = await abrir({ repositorio: repositorio(), resumidor });
+    await ditar(usuaria, 'Ana Clara veio com Marta.');
+    const resumo = screen.getByText('Ver o texto que vai para o Claude');
+    const previa = resumo.closest('details')!;
+    await usuaria.click(resumo);
+
+    expect(previa).toHaveAttribute('open');
+    expect(within(previa).getByText('[P] veio com [R1].')).toBeVisible();
+    expect(previa).not.toHaveTextContent(/Ana|Clara|Marta/);
+    // É o mesmo texto que o Resumir manda.
+    await usuaria.click(botao('Resumir'));
+    expect(resumidor.resumir).toHaveBeenCalledWith('[P] veio com [R1].');
+  });
+
+  it('se a ficha não carrega, avisa que o resumo fica desligado', async () => {
+    const repo = repositorio();
+    vi.spyOn(repo, 'obterFicha').mockRejectedValue(new Error('sem rede'));
+    const { usuaria } = await abrir({ repositorio: repo });
+    await usuaria.type(area(), 'Algo.');
+    expect(
+      await screen.findByText('Não foi possível carregar os responsáveis; o resumo fica desligado.'),
+    ).toBeInTheDocument();
+    expect(botao('Resumir')).toBeDisabled();
   });
 
   it('salvar tudo vazio mostra a mensagem e não grava', async () => {

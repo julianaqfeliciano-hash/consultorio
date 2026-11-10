@@ -197,6 +197,15 @@ describe('sair apaga os rascunhos', () => {
     expect([...dados.keys()]).toEqual(['outra']);
   });
 
+  it('na autenticação real, mesmo quando o signOut falha', async () => {
+    const dados = armazenamentoFalso();
+    const semRede = clienteFalso({
+      sair: async () => ({ error: erroFalso('AuthRetryableFetchError', 'Failed to fetch', 0) }),
+    });
+    await expect(criarAutenticacaoSupabase(semRede.cliente).sair()).rejects.toThrow(SEM_CONEXAO);
+    expect([...dados.keys()]).toEqual(['outra']);
+  });
+
   it('na autenticação de demonstração', async () => {
     const dados = armazenamentoFalso();
     await criarAutenticacaoDemo().sair();
