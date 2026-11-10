@@ -176,7 +176,8 @@ Como o arquivo é organizado:
   - verificar `stop_reason`: `'refusal'` → `recusa`; `'max_tokens'` → `falha_claude`;
   - fazer o `JSON.parse` do bloco de texto; parse inválido → `falha_claude`;
   - erro do SDK (`Anthropic.APIError` ou de conexão) → `falha_claude`, sem repassar a mensagem do SDK;
-  - não registrar o texto em log.
+  - não registrar o texto em log;
+  - só a dona chama a função porque a verificação de JWT do Supabase está ligada (o padrão); o guia manda deixá-la ligada.
 - **`PROMPT`, em pt-BR, texto exato:**
 
 ```
