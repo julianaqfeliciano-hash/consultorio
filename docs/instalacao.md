@@ -1,7 +1,7 @@
 # Guia de instalação
 
 Este guia leva você, passo a passo, do zero até o sistema funcionando no seu celular, no iPad e no notebook.
-Você faz tudo **uma vez só**, e leva cerca de 40 minutos. Não precisa saber programar: é só clicar, copiar e colar.
+Você faz tudo **uma vez só**, e leva cerca de 40 minutos (mais uns 15 se ligar o resumo com o Claude, passo 1.7). Não precisa saber programar: é só clicar, copiar e colar.
 
 **O que você vai montar**
 
@@ -111,6 +111,34 @@ sistema antigo continua funcionando com o banco já atualizado, mas o novo preci
 
 Se não resolver, tire um print do erro e peça ajuda (cuidado para o print não mostrar senhas nem a chave secret).
 
+### 1.3.2 Atualizar o banco (registro)
+
+O registro das sessões (escrever o que aconteceu e salvar) precisa de mais uma tabela. Ela vem num terceiro texto
+pronto, no mesmo lugar dos outros. **A ordem importa:** primeiro `20261023120000_base.sql` (passo 1.3), depois
+`20261101120000_cobranca.sql` (passo 1.3.1) e **depois** `20261115120000_registro.sql`. Este passo **não é opcional**:
+sem ele, o botão **“Salvar registro”** não funciona.
+
+- **Se você está instalando agora:** faça os passos abaixo logo depois do 1.3.1.
+- **Se você já instalou o sistema antes:** **não rode os arquivos anteriores de novo.** Faça apenas os passos abaixo,
+  uma única vez.
+
+**Rode este arquivo no Supabase antes de atualizar o sistema** (antes de a versão nova ser publicada no Cloudflare),
+do mesmo jeito do passo 1.3.1.
+
+1. No GitHub, na pasta **`supabase`** → **`migrations`**, clique no arquivo **`20261115120000_registro.sql`**.
+2. Copie o texto inteiro (botão de copiar o arquivo bruto, ou **“Raw”**, **Ctrl + A** e **Ctrl + C**).
+3. No Supabase, clique em **“SQL Editor”** e depois em **“New query”** (uma folha em branco, nova).
+4. Cole o texto (**Ctrl + V**, no Mac **⌘ + V**) e clique em **“Run”**.
+5. **O que você deve ver:** **“Success. No rows returned”**.
+
+**Se aparecer um erro em vermelho**, não continue:
+
+- **“already exists”** (já existe): este arquivo já foi rodado neste projeto. **Não rode de novo.**
+- **“relation ... does not exist”** (a tabela não existe): os arquivos anteriores ainda não foram rodados. Rode-os na
+  ordem acima e depois este.
+
+Se não resolver, tire um print do erro e peça ajuda (cuidado para o print não mostrar senhas nem a chave secret).
+
 ### 1.4 Criar o seu login
 
 O sistema é só seu: ninguém mais consegue entrar. Você vai criar o único login que vai existir.
@@ -157,40 +185,22 @@ O sistema precisa saber **onde** está o banco e ter a **chave pública** para f
 > Não se preocupe com a Publishable key ser “pública”: ela é feita para ficar dentro do sistema. Quem protege os dados
 > são as regras do banco que você criou no passo 1.3, que só deixam entrar quem tem o login do passo 1.4.
 
-### 1.7 Ligar o resumo com o Claude
+### 1.7 Ligar o resumo com o Claude (opcional)
 
 No registro de cada sessão você escreve (ou dita) o que aconteceu e o sistema pode **resumir** o texto nos quatro
-campos do registro, usando o **Claude**, uma inteligência artificial. Para isso funcionar, falta ligar duas coisas: uma
-conta no Claude (com créditos) e uma pequena função no Supabase que conversa com ele.
+campos do registro, usando o **Claude**, uma inteligência artificial. Para isso, falta ligar duas coisas: uma conta no
+Claude (com créditos) e uma pequena função no Supabase que conversa com ele. Este passo leva cerca de 15 minutos.
+
+**Ele é opcional.** Sem ele, só o botão **“Resumir”** não funciona (mostra um aviso): você ainda escreve o registro à
+mão nos quatro campos e salva normalmente. Para o registro ser salvo, é preciso ter feito o passo 1.3.2.
 
 Antes de o texto sair do seu aparelho, o sistema troca o nome do paciente e dos responsáveis por marcadores como
 `[P]` e `[R1]`; o Claude nunca recebe esses nomes. **Nada é salvo sem você revisar:** o resumo só preenche os campos
 na tela, e só o botão **“Salvar registro”** grava.
 
-**Custo:** o resumo é cobrado pelo Claude, por uso: cerca de **R$ 0,15 a R$ 0,30 por sessão** resumida. Se você não
-ligar este passo, o resto do sistema funciona normalmente; só o botão **“Resumir”** mostra um aviso.
+**Custo:** o resumo é cobrado pelo Claude, por uso: cerca de **R$ 0,15 a R$ 0,30 por sessão** resumida.
 
-**Parte A — Atualizar o banco (registro)**
-
-O registro precisa de mais uma tabela. Ela vem num terceiro texto pronto, no mesmo lugar dos outros. **A ordem
-importa:** primeiro `20261023120000_base.sql` (passo 1.3), depois `20261101120000_cobranca.sql` (passo 1.3.1) e
-**depois** `20261115120000_registro.sql`. Rode este **antes de atualizar o sistema** (antes de a versão nova ser
-publicada no Cloudflare), do mesmo jeito do passo 1.3.1. Se você já tinha instalado o sistema, **não rode os dois
-primeiros de novo**: faça só este, uma única vez.
-
-1. No GitHub, na pasta **`supabase`** → **`migrations`**, clique no arquivo **`20261115120000_registro.sql`**.
-2. Copie o texto inteiro (botão de copiar o arquivo bruto, ou **“Raw”**, **Ctrl + A** e **Ctrl + C**).
-3. No Supabase, clique em **“SQL Editor”** e depois em **“New query”** (uma folha em branco, nova).
-4. Cole o texto (**Ctrl + V**, no Mac **⌘ + V**) e clique em **“Run”**.
-5. **O que você deve ver:** **“Success. No rows returned”**.
-
-**Se aparecer um erro em vermelho**, não continue:
-
-- **“already exists”** (já existe): este arquivo já foi rodado neste projeto. **Não rode de novo.**
-- **“relation ... does not exist”** (a tabela não existe): os arquivos anteriores ainda não foram rodados. Rode-os na
-  ordem acima e depois este.
-
-**Parte B — Criar a conta e a chave no Claude**
+**Parte A — Criar a conta e a chave no Claude**
 
 1. Abra **https://platform.claude.com** e crie uma conta (pode ser com o seu e-mail). Esta é a conta de quem
    desenvolve programas com o Claude; é diferente de usar o Claude no navegador.
@@ -201,16 +211,16 @@ primeiros de novo**: faça só este, uma única vez.
    copiar, apague essa chave e crie outra.
 
 > **A chave do Claude é como uma senha que gasta o seu dinheiro.** Ela vai **somente** para os segredos do Supabase
-> (parte C). **Nunca** a cole no sistema, no GitHub, no Cloudflare, em mensagens ou num print.
+> (parte B). **Nunca** a cole no sistema, no GitHub, no Cloudflare, em mensagens ou num print.
 
-**Parte C — Guardar a chave no Supabase**
+**Parte B — Guardar a chave no Supabase**
 
 1. No Supabase, no projeto `consultorio`, clique em **“Edge Functions”** na barra lateral.
 2. Procure **“Secrets”** (também chamado **“Manage secrets”**) e clique.
 3. Adicione um segredo novo: no **nome** escreva exatamente `ANTHROPIC_API_KEY` (maiúsculas, com sublinhado) e, no
    **valor**, cole a chave do Claude. Salve (**“Save”** ou **“Add secret”**).
 
-**Parte D — Criar a função `resumir-sessao`**
+**Parte C — Criar a função `resumir-sessao`**
 
 1. No GitHub, abra a pasta **`supabase`** → **`functions`** → **`resumir-sessao`** e clique em **`index.ts`**. Copie o
    texto inteiro, como nos passos anteriores.
@@ -223,16 +233,17 @@ primeiros de novo**: faça só este, uma única vez.
 
 **O que você deve ver:** a função `resumir-sessao` na lista de Edge Functions, com o estado de ativa.
 
-**Para testar:** abra o sistema, entre, e numa sessão em que o paciente **compareceu** toque em **“Escrever
+**Para testar:** se o sistema já está instalado, abra-o, entre, e numa sessão em que o paciente **compareceu** toque em **“Escrever
 registro”**, escreva uma frase, toque em **“Resumir”** e espere alguns segundos. Os quatro campos devem ser preenchidos.
-Confira o texto e toque em **“Salvar registro”**.
+Confira o texto e toque em **“Salvar registro”**. Numa instalação nova, teste só depois da Parte 4, quando o
+sistema já estiver publicado e você tiver entrado nele.
 
 **Se aparecer um erro**, o sistema mostra uma mensagem em vermelho e o botão **“Tentar de novo”**; o que você escreveu
 não se perde. As causas mais comuns:
 
 - **“O resumo com o Claude ainda não foi ligado”:** a função ou o segredo `ANTHROPIC_API_KEY` estão faltando.
-  Confira o nome do segredo (letra por letra) e se a função se chama `resumir-sessao`. Depois de mudar um segredo, publique
-  a função de novo (**Deploy**).
+  Confira o nome do segredo (letra por letra) e se a função se chama `resumir-sessao`. Se mudou o segredo e o erro continua,
+  publique a função de novo (**Deploy**).
 - **Erro de crédito ou de chave:** veja em **platform.claude.com** → **“Billing”** se ainda há créditos e se a chave
   não foi apagada. Se precisar, crie outra chave e troque o valor do segredo.
 - **Sem internet:** conecte-se e toque em **“Tentar de novo”**.
@@ -335,8 +346,8 @@ Os campos disponíveis são `{responsável}`, `{paciente}`, `{dia}` e `{hora}`.
 Na própria lista, as setas **“Dia anterior”** e **“Próximo dia”** mudam o dia mostrado.
 
 **O que esta primeira versão faz, e o que vem depois.** Agora o sistema tem login, configurações, parceiros, pacientes,
-agenda semanal e a lista de amanhã. As telas **Financeiro** e **Relatórios** aparecem “em construção”: a cobrança,
-o registro das sessões, os documentos e os relatórios chegam nas próximas etapas.
+agenda semanal e a lista de amanhã. Também já existem a cobrança (aba **Financeiro**) e o registro das sessões; os documentos e os relatórios
+chegam nas próximas etapas.
 
 **Cópia de segurança.** O plano gratuito do Supabase **não faz cópias automáticas** dos dados. O botão “Baixar backup”
 e o lembrete mensal chegam numa etapa futura; até lá, nenhuma cópia é feita sozinha.

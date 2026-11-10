@@ -77,8 +77,10 @@ test('registra o mês da Ana Clara pela ficha e a sessão da Maria Luísa pela a
 
     // No celular a agenda mostra um dia por vez: vai até a quinta 29/10.
     const sessao = page.getByRole('main').getByRole('button', { name: /Maria Luísa Costa/ });
+    const quinta = page.getByRole('button', { name: /Qui 29/ });
+    await expect(sessao.or(quinta).first()).toBeVisible();
     if ((await sessao.count()) === 0) {
-      await page.getByRole('button', { name: /Qui 29/ }).click();
+      await quinta.click();
     }
     await expect(sessao).toHaveCount(1);
     await sessao.click();

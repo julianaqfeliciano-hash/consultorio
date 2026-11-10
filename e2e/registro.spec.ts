@@ -30,7 +30,7 @@ test('escreve, resume e salva o registro da sessão da Maria Luísa', async ({ p
     // No celular a agenda mostra um dia por vez: vai até a quinta 29/10.
     const sessao = page.getByRole('main').getByRole('button', { name: /Maria Luísa Costa/ });
     const quinta = page.getByRole('button', { name: /Qui 29/ });
-    await expect(sessao.or(quinta)).toBeVisible();
+    await expect(sessao.or(quinta).first()).toBeVisible();
     if ((await sessao.count()) === 0) {
       await quinta.click();
     }
