@@ -40,6 +40,33 @@ describe('anonimizar', () => {
   });
 });
 
+describe('anonimizar: casos de borda', () => {
+  it('troca nome de 1 ou 2 letras quando é o nome inteiro', () => {
+    const p = { paciente: 'Li', responsaveis: [] };
+    expect(anonimizar('Li chegou. li!', p).texto).toBe('[P] chegou. [P]!');
+  });
+
+  it('sobrenome com apóstrofo curvo ou reto, e o sobrenome sozinho', () => {
+    const p = { paciente: "Maria D'Ávila", responsaveis: [] };
+    expect(anonimizar("D’Ávila, D'Avila e Ávila e d´avila", p).texto).not.toMatch(/vila/i);
+    expect(anonimizar('Maria D’Ávila', p).texto).toBe('[P]');
+    expect(anonimizar('Avila veio', p).texto).toBe('[P] veio');
+  });
+
+  it('nome com hífen não vaza nada', () => {
+    const t = anonimizar('Ana-Clara chegou', pessoas).texto;
+    expect(t).not.toMatch(/Ana|Clara/);
+  });
+
+  it('nome quebrado por linha', () => {
+    expect(anonimizar('Ana\nClara Souza veio', pessoas).texto).toBe('[P] veio');
+  });
+
+  it('marcador desconhecido literal vira parênteses', () => {
+    expect(anonimizar('veio [R9]', pessoas).texto).toBe('veio (R9)');
+  });
+});
+
 describe('restaurar', () => {
   it('restaura pelo primeiro nome e mantém o desconhecido', () => {
     const { mapa } = anonimizar('', pessoas);

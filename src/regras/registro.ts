@@ -14,8 +14,10 @@ export interface TextoAnonimo {
 
 const MARCADOR_PRONTO = /\[(?:P|F|R\d+)\]/g;
 
+const APOSTROFOS = /[’‘'`´]/g;
+
 function palavras(nome: string): string[] {
-  return normalizarParaBusca(nome)
+  return normalizarParaBusca(nome.replace(APOSTROFOS, ' '))
     .split(' ')
     .filter((p) => p !== '');
 }
@@ -34,7 +36,7 @@ function normalizarComIndices(texto: string): { norm: string; origem: number[] }
   const origem: number[] = [];
   let i = 0;
   for (const ch of texto) {
-    const parte = ch.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+    const parte = ch.replace(APOSTROFOS, ' ').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
     for (let k = 0; k < parte.length; k++) origem.push(i);
     norm += parte;
     i += ch.length;
@@ -56,7 +58,8 @@ export function anonimizar(texto: string, pessoas: Pessoas): TextoAnonimo {
     if (nome.trim() === '') continue;
     mapa[`[${chave}]`] = primeiroNome(nome);
     const ps = palavras(nome);
-    const variantes = new Set<string>();
+    if (ps.length === 0) continue;
+    const variantes = new Set<string>([ps.join(' ')]);
     for (let a = 0; a < ps.length; a++) {
       for (let b = a + 1; b <= ps.length; b++) {
         const seq = ps.slice(a, b);
