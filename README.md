@@ -8,6 +8,10 @@ Estado atual: **Etapas 1, 2 e 3** (base, agenda e cobrança): login, configuraç
 horários fixos, agenda semanal, lista de amanhã com WhatsApp e bloqueios, e a cobrança: a aba **Financeiro**
 (quem está devendo e os pagamentos do mês), o financeiro na ficha de cada paciente e o pagamento direto no painel
 da sessão. A migração da cobrança (`supabase/migrations/20261101120000_cobranca.sql`) roda depois da base.
+A **Etapa 4** acrescenta o registro das sessões com o Claude: ela escreve ou dita o que aconteceu, o Claude resume em
+quatro campos (com os nomes trocados por marcadores antes de sair do aparelho) e ela revisa e salva. Isso usa a função
+`resumir-sessao` do Supabase e a migração `supabase/migrations/20261115120000_registro.sql`; a instalação está no passo 1.7
+do guia.
 
 ## Documentos
 

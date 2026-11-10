@@ -97,3 +97,12 @@ Para depois:
 - O pacote inteiro da avaliação conta como devido desde o início dela.
 - Uma ligação de pagamento pode apontar para a sessão de outra conta (as chaves estrangeiras não passam pelo RLS). Hoje só existe uma conta.
 - Ao remover um pagamento complementar de um mês, o aviso diz "O mês volta a ficar em aberto.", mas só a diferença volta (a ficha mostra o valor certo logo depois).
+
+## Etapa 4 (registro): pendências
+
+- Nomes de outras pessoas (irmãos, colegas, escola) não são trocados por marcadores: só os do paciente e dos responsáveis.
+- Apelidos e diminutivos (ex.: "Aninha") não são trocados, nem um sobrenome escrito sem o apóstrofo ("Davila").
+- Um nome completo de 1 ou 2 letras que também seja uma palavra comum é trocado em todo o texto.
+- O rascunho fica no aparelho até salvar ou tocar em "Sair"; uma sessão que expira sem "Sair" mantém o rascunho.
+- O adaptador do Supabase para o registro nunca rodou contra um servidor real.
+- "Ditar" não mostra nenhuma mensagem quando o microfone é negado.

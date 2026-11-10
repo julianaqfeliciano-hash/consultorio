@@ -8,7 +8,7 @@ Você faz tudo **uma vez só**, e leva cerca de 40 minutos. Não precisa saber p
 - Um **banco de dados** no **Supabase**, onde ficam guardados os pacientes, os horários e as sessões. O servidor fica em São Paulo.
 - Um **endereço na internet** no **Cloudflare**, onde o sistema fica publicado. Ele é aberto no celular, no iPad e no notebook, e funciona como um aplicativo.
 
-**Custo:** R$ 0. Os dois serviços têm plano gratuito, que basta para o consultório, e normalmente não pedem cartão de crédito.
+**Custo:** R$ 0. Os dois serviços têm plano gratuito, que basta para o consultório, e normalmente não pedem cartão de crédito. Só o resumo do registro com o Claude (passo 1.7, opcional) é pago por uso.
 
 **Antes de começar, tenha à mão**
 
@@ -156,6 +156,93 @@ O sistema precisa saber **onde** está o banco e ter a **chave pública** para f
 >
 > Não se preocupe com a Publishable key ser “pública”: ela é feita para ficar dentro do sistema. Quem protege os dados
 > são as regras do banco que você criou no passo 1.3, que só deixam entrar quem tem o login do passo 1.4.
+
+### 1.7 Ligar o resumo com o Claude
+
+No registro de cada sessão você escreve (ou dita) o que aconteceu e o sistema pode **resumir** o texto nos quatro
+campos do registro, usando o **Claude**, uma inteligência artificial. Para isso funcionar, falta ligar duas coisas: uma
+conta no Claude (com créditos) e uma pequena função no Supabase que conversa com ele.
+
+Antes de o texto sair do seu aparelho, o sistema troca o nome do paciente e dos responsáveis por marcadores como
+`[P]` e `[R1]`; o Claude nunca recebe esses nomes. **Nada é salvo sem você revisar:** o resumo só preenche os campos
+na tela, e só o botão **“Salvar registro”** grava.
+
+**Custo:** o resumo é cobrado pelo Claude, por uso: cerca de **R$ 0,15 a R$ 0,30 por sessão** resumida. Se você não
+ligar este passo, o resto do sistema funciona normalmente; só o botão **“Resumir”** mostra um aviso.
+
+**Parte A — Atualizar o banco (registro)**
+
+O registro precisa de mais uma tabela. Ela vem num terceiro texto pronto, no mesmo lugar dos outros. **A ordem
+importa:** primeiro `20261023120000_base.sql` (passo 1.3), depois `20261101120000_cobranca.sql` (passo 1.3.1) e
+**depois** `20261115120000_registro.sql`. Rode este **antes de atualizar o sistema** (antes de a versão nova ser
+publicada no Cloudflare), do mesmo jeito do passo 1.3.1. Se você já tinha instalado o sistema, **não rode os dois
+primeiros de novo**: faça só este, uma única vez.
+
+1. No GitHub, na pasta **`supabase`** → **`migrations`**, clique no arquivo **`20261115120000_registro.sql`**.
+2. Copie o texto inteiro (botão de copiar o arquivo bruto, ou **“Raw”**, **Ctrl + A** e **Ctrl + C**).
+3. No Supabase, clique em **“SQL Editor”** e depois em **“New query”** (uma folha em branco, nova).
+4. Cole o texto (**Ctrl + V**, no Mac **⌘ + V**) e clique em **“Run”**.
+5. **O que você deve ver:** **“Success. No rows returned”**.
+
+**Se aparecer um erro em vermelho**, não continue:
+
+- **“already exists”** (já existe): este arquivo já foi rodado neste projeto. **Não rode de novo.**
+- **“relation ... does not exist”** (a tabela não existe): os arquivos anteriores ainda não foram rodados. Rode-os na
+  ordem acima e depois este.
+
+**Parte B — Criar a conta e a chave no Claude**
+
+1. Abra **https://platform.claude.com** e crie uma conta (pode ser com o seu e-mail). Esta é a conta de quem
+   desenvolve programas com o Claude; é diferente de usar o Claude no navegador.
+2. Entre em **“Billing”** (cobrança) e compre **créditos**. O mínimo é de cerca de **US$ 5**, que dão para muitas sessões.
+3. Entre em **“API Keys”** (chaves de API) e clique em **“Create Key”** (criar chave). Dê um nome, por exemplo
+   `consultorio`.
+4. A chave aparece **uma única vez**. Copie-a agora e guarde-a no gerenciador de senhas. Se fechar a janela sem
+   copiar, apague essa chave e crie outra.
+
+> **A chave do Claude é como uma senha que gasta o seu dinheiro.** Ela vai **somente** para os segredos do Supabase
+> (parte C). **Nunca** a cole no sistema, no GitHub, no Cloudflare, em mensagens ou num print.
+
+**Parte C — Guardar a chave no Supabase**
+
+1. No Supabase, no projeto `consultorio`, clique em **“Edge Functions”** na barra lateral.
+2. Procure **“Secrets”** (também chamado **“Manage secrets”**) e clique.
+3. Adicione um segredo novo: no **nome** escreva exatamente `ANTHROPIC_API_KEY` (maiúsculas, com sublinhado) e, no
+   **valor**, cole a chave do Claude. Salve (**“Save”** ou **“Add secret”**).
+
+**Parte D — Criar a função `resumir-sessao`**
+
+1. No GitHub, abra a pasta **`supabase`** → **`functions`** → **`resumir-sessao`** e clique em **`index.ts`**. Copie o
+   texto inteiro, como nos passos anteriores.
+2. No Supabase, em **“Edge Functions”**, clique em **“Deploy a new function”** e escolha **“Via Editor”**.
+3. Dê à função o nome **`resumir-sessao`**, exatamente assim, em minúsculas e com hífen.
+4. Apague o texto de exemplo que já está no editor e cole o que você copiou.
+5. **Mantenha ligada** a opção **“Verify JWT”** (verificar o login), se ela aparecer. Ela é uma proteção: a função só
+   responde a quem está com o login feito.
+6. Clique em **“Deploy”** (publicar) e espere terminar.
+
+**O que você deve ver:** a função `resumir-sessao` na lista de Edge Functions, com o estado de ativa.
+
+**Para testar:** abra o sistema, entre, e numa sessão em que o paciente **compareceu** toque em **“Escrever
+registro”**, escreva uma frase, toque em **“Resumir”** e espere alguns segundos. Os quatro campos devem ser preenchidos.
+Confira o texto e toque em **“Salvar registro”**.
+
+**Se aparecer um erro**, o sistema mostra uma mensagem em vermelho e o botão **“Tentar de novo”**; o que você escreveu
+não se perde. As causas mais comuns:
+
+- **“O resumo com o Claude ainda não foi ligado”:** a função ou o segredo `ANTHROPIC_API_KEY` estão faltando.
+  Confira o nome do segredo (letra por letra) e se a função se chama `resumir-sessao`. Depois de mudar um segredo, publique
+  a função de novo (**Deploy**).
+- **Erro de crédito ou de chave:** veja em **platform.claude.com** → **“Billing”** se ainda há créditos e se a chave
+  não foi apagada. Se precisar, crie outra chave e troque o valor do segredo.
+- **Sem internet:** conecte-se e toque em **“Tentar de novo”**.
+- **Texto muito longo:** o limite é de 20.000 letras; uma sessão de 50 minutos ditada tem cerca de 5.000.
+
+**Opcional — um modelo mais econômico.** O sistema usa por padrão o modelo `claude-opus-5-5`. Para gastar menos, crie
+em **Edge Functions → Secrets** mais um segredo chamado `CLAUDE_MODELO`, com o valor `claude-sonnet-5-5`. Para voltar
+ao padrão, apague esse segredo.
+
+Se não resolver, tire um print do erro e peça ajuda (cuidado para o print não mostrar senhas nem a chave do Claude).
 
 ---
 
@@ -321,8 +408,9 @@ No Cloudflare, abra **Workers & Pages**, clique no projeto `consultorio`: o ende
 | E-mail e senha do seu login (passo 1.4) | Para entrar no sistema. **Só você.** |
 | Endereço `….pages.dev` (passo 2.2) | Onde o sistema abre. Pode abrir nos seus aparelhos. |
 | Project URL e Publishable key (passo 1.6) | Já estão no Cloudflare. Guarde uma cópia para o caso de precisar reinstalar. |
+| Chave do Claude (passo 1.7) | Aparece uma única vez. Fica só nos segredos do Supabase; se perder, crie outra. |
 
-**Nunca** envie, cole em sites ou coloque no Cloudflare: a **senha do banco** e a chave **secret / service_role**.
+**Nunca** envie, cole em sites ou coloque no Cloudflare: a **senha do banco**, a chave **secret / service_role** e a **chave do Claude**.
 
 ---
 
