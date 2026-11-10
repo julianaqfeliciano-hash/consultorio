@@ -189,7 +189,9 @@ O sistema precisa saber **onde** está o banco e ter a **chave pública** para f
 
 No registro de cada sessão você escreve (ou dita) o que aconteceu e o sistema pode **resumir** o texto nos quatro
 campos do registro, usando o **Claude**, uma inteligência artificial. Para isso, falta ligar duas coisas: uma conta no
-Claude (com créditos) e uma pequena função no Supabase que conversa com ele. Este passo leva cerca de 15 minutos.
+Claude (com créditos) e uma pequena função no Supabase que conversa com ele. A própria função confere o seu login
+antes de chamar o Claude: quem não entrou no sistema não consegue gastar os seus créditos. Este passo leva cerca de
+15 minutos.
 
 **Ele é opcional.** Sem ele, só o botão **“Resumir”** não funciona (mostra um aviso): você ainda escreve o registro à
 mão nos quatro campos e salva normalmente. Para o registro ser salvo, é preciso ter feito o passo 1.3.2.
@@ -227,8 +229,8 @@ na tela, e só o botão **“Salvar registro”** grava.
 2. No Supabase, em **“Edge Functions”**, clique em **“Deploy a new function”** e escolha **“Via Editor”**.
 3. Dê à função o nome **`resumir-sessao`**, exatamente assim, em minúsculas e com hífen.
 4. Apague o texto de exemplo que já está no editor e cole o que você copiou.
-5. **Mantenha ligada** a opção **“Verify JWT”** (verificar o login), se ela aparecer. Ela é uma proteção: a função só
-   responde a quem está com o login feito.
+5. Se aparecer a opção **“Verify JWT”** (verificar o login), deixe como o painel sugerir. A função confere o login de
+   qualquer jeito.
 6. Clique em **“Deploy”** (publicar) e espere terminar.
 
 **O que você deve ver:** a função `resumir-sessao` na lista de Edge Functions, com o estado de ativa.
@@ -248,6 +250,8 @@ não se perde. As causas mais comuns:
   não foi apagada. Se precisar, crie outra chave e troque o valor do segredo.
 - **Sem internet:** conecte-se e toque em **“Tentar de novo”**.
 - **Texto muito longo:** o limite é de 20.000 letras; uma sessão de 50 minutos ditada tem cerca de 5.000.
+- **“O Claude não conseguiu resumir agora” sempre, depois de criar o segredo `CLAUDE_MODELO`:** o nome do modelo pode
+  estar digitado errado. Apague o segredo `CLAUDE_MODELO` em **Edge Functions → Secrets** para voltar ao modelo padrão.
 
 **Opcional — um modelo mais econômico.** O sistema usa por padrão o modelo `claude-opus-5-5`. Para gastar menos, crie
 em **Edge Functions → Secrets** mais um segredo chamado `CLAUDE_MODELO`, com o valor `claude-sonnet-5-5`. Para voltar

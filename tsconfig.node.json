@@ -5,7 +5,10 @@
     "lib": ["ES2023"],
     "types": ["node", "vitest/globals"],
     "skipLibCheck": true,
-    "paths": { "npm:@anthropic-ai/sdk@1.3.0": ["./node_modules/@anthropic-ai/sdk"] },
+    "paths": {
+      "npm:@anthropic-ai/sdk@1.3.0": ["./node_modules/@anthropic-ai/sdk"],
+      "npm:@supabase/supabase-js@2.118.0": ["./node_modules/@supabase/supabase-js"]
+    },
 
     /* Bundler mode */
     "module": "esnext",

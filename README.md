@@ -10,8 +10,8 @@ horários fixos, agenda semanal, lista de amanhã com WhatsApp e bloqueios, e a 
 da sessão. A migração da cobrança (`supabase/migrations/20261101120000_cobranca.sql`) roda depois da base.
 A **Etapa 4** acrescenta o registro das sessões com o Claude: ela escreve ou dita o que aconteceu, o Claude resume em
 quatro campos (com os nomes trocados por marcadores antes de sair do aparelho) e ela revisa e salva. Isso usa a função
-`resumir-sessao` do Supabase e a migração `supabase/migrations/20261115120000_registro.sql`; a instalação está no passo 1.7
-do guia.
+`resumir-sessao` do Supabase e a migração `supabase/migrations/20261115120000_registro.sql`. A migração está no passo
+1.3.2 do guia, e a função, no passo 1.7.
 
 ## Documentos
 

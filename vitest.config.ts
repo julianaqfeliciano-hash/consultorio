@@ -11,9 +11,12 @@ export default defineConfig({
     projects: [
       {
         // Regras, serviços, dados e banco: sem navegador.
-        // A função roda no Deno, onde o SDK vem por `npm:`; aqui vira o pacote.
+        // A função roda no Deno, onde os pacotes vêm por `npm:`; aqui viram os pacotes.
         resolve: {
-          alias: { 'npm:@anthropic-ai/sdk@1.3.0': '@anthropic-ai/sdk' },
+          alias: {
+            'npm:@anthropic-ai/sdk@1.3.0': '@anthropic-ai/sdk',
+            'npm:@supabase/supabase-js@2.118.0': '@supabase/supabase-js',
+          },
         },
         test: {
           name: 'unidade',

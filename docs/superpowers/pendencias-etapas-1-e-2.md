@@ -101,8 +101,10 @@ Para depois:
 ## Etapa 4 (registro): pendências
 
 - Nomes de outras pessoas (irmãos, colegas, escola) não são trocados por marcadores: só os do paciente e dos responsáveis.
-- Apelidos e diminutivos (ex.: "Aninha") não são trocados, nem um sobrenome escrito sem o apóstrofo ("Davila").
-- Um nome completo de 1 ou 2 letras que também seja uma palavra comum é trocado em todo o texto.
+- Grafias diferentes da ficha já são trocadas (s/z, i/y, t/th, f/ph e letra dobrada: "Luiza" por "Luísa", "Tiago" por "Thiago", "Isabela" por "Isabella"). Apelidos e diminutivos (ex.: "Aninha") ainda não são, nem um sobrenome escrito sem o apóstrofo ("Davila").
+- Toda palavra do nome (menos da, de, do, das, dos, e e as iniciais) é trocada em todo o texto, mesmo quando também é uma palavra comum (ex.: "Lu", "Flor"). As grafias trocáveis ampliam isso. Para conferir, há "Ver o texto que vai para o Claude".
+- A regra de gravação (with check) de `registros_sessao` não confere se a sessão é da mesma conta (`dono`), como já acontece com as ligações de pagamento. Hoje só existe uma conta. A correção: `and exists (select 1 from sessoes s where s.id = sessao_id and s.dono = auth.uid())`.
+- Apagar uma sessão apaga o registro dela (`on delete cascade`). Só se apagam sessões agendadas, mas uma sessão com registro que voltou para agendada pode ser removida (ao dar alta ou mudar o horário fixo), e o registro vai junto.
 - O rascunho fica no aparelho até salvar ou tocar em "Sair"; uma sessão que expira sem "Sair" mantém o rascunho.
 - O adaptador do Supabase para o registro nunca rodou contra um servidor real.
 - "Ditar" não mostra nenhuma mensagem quando o microfone é negado.
