@@ -324,4 +324,23 @@ describe('FichaPaciente — sessões (histórico)', () => {
 
     expect(await within(sessoes).findAllByText('Compareceu')).toHaveLength(3);
   });
+
+  it('sessões com registro mostram Registro no histórico, com link', async () => {
+    const repositorio = repositorioDemo();
+    const historico = (await repositorio.listarSessoesDoPaciente(ANA)).filter((s) => s.situacao === 'compareceu');
+    const comRegistro = historico[0]!;
+    await repositorio.salvarRegistro(comRegistro.id, {
+      textoFalado: '',
+      comoChegou: 'Bem.',
+      trabalhado: '',
+      observacoes: '',
+      proximosPassos: '',
+    });
+    abrirFicha(ANA, repositorio);
+    const sessoes = await screen.findByRole('region', { name: 'Sessões' });
+
+    const link = await within(sessoes).findByRole('link', { name: 'Registro' });
+    expect(link).toHaveAttribute('href', `/agenda/sessoes/${comRegistro.id}/registro`);
+    expect(within(sessoes).getAllByRole('link', { name: 'Registro' })).toHaveLength(1);
+  });
 });

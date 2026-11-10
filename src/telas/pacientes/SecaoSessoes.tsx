@@ -2,13 +2,15 @@ import { SecaoRecolhivel } from '../../componentes/SecaoRecolhivel';
 import { ChipSituacao } from '../../componentes/ChipSituacao';
 import { EtiquetaTipo } from '../../componentes/EtiquetaTipo';
 import { FalhaAoCarregar } from '../../componentes/FalhaAoCarregar';
+import { LinkBotao } from '../../componentes/LinkBotao';
+import { useSessoesComRegistro } from '../../dados/useRegistro';
 import { useSessoesDoPaciente } from '../../dados/useFicha';
 import { CLASSE_FAIXA_TIPO, tipoVisual } from '../../dominio/rotulos';
 import type { Id, Sessao } from '../../dominio/tipos';
 import { separarSessoesDoPaciente } from '../../regras/agenda';
 import { dataLocal, diaPorExtenso, formatarData, horaLocal, hojeISO } from '../../regras/datas';
 
-function LinhaDaSessao({ sessao, comDiaDaSemana }: { sessao: Sessao; comDiaDaSemana: boolean }) {
+function LinhaDaSessao({ sessao, comDiaDaSemana, comRegistro }: { sessao: Sessao; comDiaDaSemana: boolean; comRegistro: boolean }) {
   const dia = dataLocal(sessao.inicio);
   const tipo = tipoVisual(sessao);
   return (
@@ -18,6 +20,11 @@ function LinhaDaSessao({ sessao, comDiaDaSemana }: { sessao: Sessao; comDiaDaSem
       <span className="font-semibold">{`${comDiaDaSemana ? diaPorExtenso(dia) : formatarData(dia)} · ${horaLocal(sessao.inicio)}`}</span>
       <EtiquetaTipo tipo={tipo} />
       <ChipSituacao situacao={sessao.situacao} />
+      {comRegistro && (
+        <LinkBotao to={`/agenda/sessoes/${sessao.id}/registro`} variante="secundario" className="ml-auto">
+          Registro
+        </LinkBotao>
+      )}
     </li>
   );
 }
@@ -25,6 +32,7 @@ function LinhaDaSessao({ sessao, comDiaDaSemana }: { sessao: Sessao; comDiaDaSem
 /** As próximas sessões agendadas e o histórico do paciente (mais recente primeiro). */
 export function SecaoSessoes({ pacienteId }: { pacienteId: Id }) {
   const sessoes = useSessoesDoPaciente(pacienteId);
+  const idsComRegistro = new Set(useSessoesComRegistro(pacienteId).data ?? []);
   const { proximas, historico } = separarSessoesDoPaciente(sessoes.data ?? [], hojeISO());
 
   return (
@@ -41,7 +49,7 @@ export function SecaoSessoes({ pacienteId }: { pacienteId: Id }) {
           ) : (
             <ul className="flex flex-col gap-2">
               {proximas.map((s) => (
-                <LinhaDaSessao key={s.id} sessao={s} comDiaDaSemana />
+                <LinhaDaSessao key={s.id} sessao={s} comDiaDaSemana comRegistro={idsComRegistro.has(s.id)} />
               ))}
             </ul>
           )}
@@ -51,7 +59,7 @@ export function SecaoSessoes({ pacienteId }: { pacienteId: Id }) {
           ) : (
             <ul className="flex flex-col gap-2">
               {historico.map((s) => (
-                <LinhaDaSessao key={s.id} sessao={s} comDiaDaSemana={false} />
+                <LinhaDaSessao key={s.id} sessao={s} comDiaDaSemana={false} comRegistro={idsComRegistro.has(s.id)} />
               ))}
             </ul>
           )}

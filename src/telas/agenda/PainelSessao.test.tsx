@@ -1,6 +1,7 @@
 import { resumidorFalso } from '../../testes/resumidorFalso';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router';
 import { criarRepositorioMemoria } from '../../dados/memoria';
 import type { Repositorio } from '../../dados/repositorio';
 import { useSessoes } from '../../dados/useAgenda';
@@ -33,7 +34,9 @@ function repositorioCom(sessao = sessaoExemplo(), paciente = pacienteExemplo({ d
 function abrirPainel(repositorio: Repositorio = repositorioCom(), semana: readonly [string, string] = SEMANA) {
   render(
     <Provedores repositorio={repositorio} resumidor={resumidorFalso()} semNovasTentativas>
-      <Pai semana={semana} />
+      <MemoryRouter>
+        <Pai semana={semana} />
+      </MemoryRouter>
     </Provedores>,
   );
   return { repositorio, usuaria: userEvent.setup() };
@@ -41,6 +44,45 @@ function abrirPainel(repositorio: Repositorio = repositorioCom(), semana: readon
 
 const sessaoGravada = async (repositorio: Repositorio, id = ID) =>
   (await repositorio.listarSessoesDoPaciente('p1')).find((s) => s.id === id);
+
+describe('PainelSessao — atalho para o registro', () => {
+  it('sessão compareceu mostra Escrever registro', async () => {
+    abrirPainel(repositorioCom(sessaoExemplo({ situacao: 'compareceu' })));
+
+    expect(await screen.findByRole('link', { name: 'Escrever registro' })).toBeInTheDocument();
+  });
+
+  it('a falta sem aviso também mostra o atalho', async () => {
+    abrirPainel(repositorioCom(sessaoExemplo({ situacao: 'falta_sem_aviso' })));
+
+    expect(await screen.findByRole('link', { name: 'Escrever registro' })).toBeInTheDocument();
+  });
+
+  it('sessão com registro mostra Ver registro', async () => {
+    const repositorio = repositorioCom(sessaoExemplo({ situacao: 'compareceu' }));
+    await repositorio.salvarRegistro(ID, { textoFalado: '', comoChegou: 'Bem.', trabalhado: '', observacoes: '', proximosPassos: '' });
+    abrirPainel(repositorio);
+
+    expect(await screen.findByRole('link', { name: 'Ver registro' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Escrever registro' })).not.toBeInTheDocument();
+  });
+
+  it.each(['agendada', 'cancelada', 'remarcada', 'falta_com_aviso'] as const)(
+    'sessão %s não mostra o atalho',
+    async (situacao) => {
+      abrirPainel(repositorioCom(sessaoExemplo({ situacao })));
+
+      await screen.findByText('terça-feira, 03/11 · 14:00 · 50 min');
+      expect(screen.queryByRole('link', { name: /registro/ })).not.toBeInTheDocument();
+    },
+  );
+
+  it('o atalho leva a /agenda/sessoes/:id/registro', async () => {
+    abrirPainel(repositorioCom(sessaoExemplo({ situacao: 'compareceu' })));
+
+    expect(await screen.findByRole('link', { name: 'Escrever registro' })).toHaveAttribute('href', `/agenda/sessoes/${ID}/registro`);
+  });
+});
 
 describe('PainelSessao', () => {
   it('mostra o dia, a hora, o tipo e a situação, e os controles da sessão', async () => {

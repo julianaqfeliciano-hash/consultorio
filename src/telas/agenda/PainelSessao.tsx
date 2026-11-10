@@ -1,12 +1,14 @@
 import { Undo2 } from 'lucide-react';
 import { Aviso } from '../../componentes/Aviso';
 import { Botao } from '../../componentes/Botao';
+import { LinkBotao } from '../../componentes/LinkBotao';
 import { CaixaDeMarcar } from '../../componentes/CaixaDeMarcar';
 import { ChipSituacao } from '../../componentes/ChipSituacao';
 import { EtiquetaTipo } from '../../componentes/EtiquetaTipo';
 import type { SessaoComPaciente } from '../../dados/repositorio';
 import { useAtualizarSessao, useMarcarSituacao } from '../../dados/useAgenda';
 import { mensagemDoErro } from '../../dados/useCobranca';
+import { useRegistro } from '../../dados/useRegistro';
 import { ICONE_SITUACAO, tipoVisual } from '../../dominio/rotulos';
 import type { SituacaoSessao } from '../../dominio/tipos';
 import { ehCobravel } from '../../regras/agenda';
@@ -36,6 +38,7 @@ const BOTOES_DE_SITUACAO: readonly { situacao: SituacaoEscolhivel; rotulo: strin
 export function PainelSessao({ sessao }: { sessao: SessaoComPaciente }) {
   const marcar = useMarcarSituacao();
   const familiar = useAtualizarSessao();
+  const registro = useRegistro(sessao.id);
   const tipo = tipoVisual(sessao);
   const remarcada = sessao.situacao === 'remarcada';
   // Sessão já cobrada (compareceu, faltou sem aviso) não é remarcada: viraria "remarcada" e perderia a cobrança.
@@ -46,6 +49,9 @@ export function PainelSessao({ sessao }: { sessao: SessaoComPaciente }) {
   const acompanhamentoFamiliar = familiar.isPending
     ? (familiar.variables.mudancas.acompanhamentoFamiliar ?? sessao.acompanhamentoFamiliar)
     : sessao.acompanhamentoFamiliar;
+
+  // Quem compareceu (inclusive em acompanhamento familiar) ou faltou sem aviso pode ter registro.
+  const comAtalhoDeRegistro = sessao.situacao === 'compareceu' || sessao.situacao === 'falta_sem_aviso';
 
   return (
     <>
@@ -102,6 +108,12 @@ export function PainelSessao({ sessao }: { sessao: SessaoComPaciente }) {
           {/* A recusa do serviço (sessão já paga) é uma frase para ela ler; o resto é falha de rede ou do banco. */}
           {marcar.isError && <Aviso tipo="erro">{mensagemDoErro(marcar.error, 'Não foi possível salvar. Tente de novo.')}</Aviso>}
         </fieldset>
+      )}
+
+      {comAtalhoDeRegistro && registro.data !== undefined && (
+        <LinkBotao to={`/agenda/sessoes/${sessao.id}/registro`} variante="secundario" className="self-start">
+          {registro.data ? 'Ver registro' : 'Escrever registro'}
+        </LinkBotao>
       )}
 
       {!remarcada && <CobrancaDaSessao sessao={sessao} />}
