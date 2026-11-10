@@ -6,6 +6,7 @@ import type {
   Paciente,
   Pagamento,
   Parceiro,
+  RegistroSessao,
   Responsavel,
   Sessao,
 } from '../dominio/tipos';
@@ -338,6 +339,21 @@ export function sementeDemo(hoje: DataISO): Required<SementeMemoria> {
     },
   ];
 
+  // Registro fictício da primeira quinta de Maria (22/10/2026 quando hoje é 02/11/2026).
+  const registros: RegistroSessao[] = [
+    {
+      sessaoId: 'demo-sessao-maria-1',
+      textoFalado:
+        'A Maria Luísa chegou animada e quis brincar de casinha. Contou que ganhou uma boneca nova e que a ' +
+        'professora elogiou o desenho dela. Na brincadeira, a boneca ficou com medo de dormir sozinha.',
+      comoChegou: 'Animada, falante, separou-se da mãe sem dificuldade.',
+      trabalhado: 'Brincadeira simbólica de casinha; expressão do medo de dormir sozinha por meio da boneca.',
+      observacoes: 'Pediu para levar o desenho para casa.',
+      proximosPassos: 'Retomar o tema do sono na próxima sessão e conversar com a mãe sobre a rotina da noite.',
+      atualizadoEm: instanteDe(quintasDeMaria[0], '17:00'),
+    },
+  ];
+
   return {
     configuracoes: CONFIGURACOES_PADRAO,
     parceiros,
@@ -348,5 +364,6 @@ export function sementeDemo(hoje: DataISO): Required<SementeMemoria> {
     sessoes,
     bloqueios: [],
     pagamentos,
+    registros,
   };
 }

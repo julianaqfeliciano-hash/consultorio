@@ -14,11 +14,13 @@ import {
   linhaParaPaciente,
   linhaParaPagamento,
   linhaParaParceiro,
+  linhaParaRegistro,
   linhaParaResponsavel,
   linhaParaSessao,
   mudancasSessaoParaLinha,
   pacienteParaLinha,
   parceiroParaLinha,
+  registroParaLinha,
   responsavelParaLinha,
   sessaoParaLinha,
   type LinhaAvaliacao,
@@ -29,6 +31,7 @@ import {
   type LinhaPagamento,
   type LinhaPagamentoComSessoes,
   type LinhaParceiro,
+  type LinhaRegistro,
   type LinhaResponsavel,
   type LinhaSessao,
 } from './mapeamento';
@@ -360,6 +363,39 @@ export function criarRepositorioSupabase(cliente: SupabaseClient): Repositorio {
     async removerPagamento(id) {
       // pagamento_sessoes.pagamento_id é "on delete cascade": as sessões ficam livres (e o mês volta a dever o valor).
       dados(await cliente.from('pagamentos').delete().eq('id', id));
+    },
+
+    async obterSessao(id) {
+      const linha = dados<LinhaSessaoComPaciente | null>(
+        await cliente.from('sessoes').select(SELECT_SESSAO_COM_PACIENTE).eq('id', id).maybeSingle(),
+      );
+      return linha ? sessaoComPaciente(linha) : null;
+    },
+    async obterRegistro(sessaoId) {
+      const linha = dados<LinhaRegistro | null>(
+        await cliente.from('registros_sessao').select('*').eq('sessao_id', sessaoId).maybeSingle(),
+      );
+      return linha ? linhaParaRegistro(linha) : null;
+    },
+    async salvarRegistro(sessaoId, campos) {
+      // Uma linha por sessão: o upsert em sessao_id insere ou substitui. Sessão que não existe
+      // quebra a chave estrangeira e o erro sobe.
+      const linha = registroParaLinha({ ...campos, sessaoId, atualizadoEm: new Date().toISOString() });
+      const salva = dados<LinhaRegistro>(
+        await cliente.from('registros_sessao').upsert(linha, { onConflict: 'sessao_id' }).select().single(),
+      );
+      return linhaParaRegistro(salva);
+    },
+    async listarSessoesComRegistro(pacienteId) {
+      const linhas = await buscarTodas<{ sessao_id: Id }>((primeira, ultima) =>
+        cliente
+          .from('registros_sessao')
+          .select('sessao_id, sessoes!inner(paciente_id)')
+          .eq('sessoes.paciente_id', pacienteId)
+          .order('sessao_id')
+          .range(primeira, ultima),
+      );
+      return linhas.map((l) => l.sessao_id);
     },
 
     async listarBloqueios() {

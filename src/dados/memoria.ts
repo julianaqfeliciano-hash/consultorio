@@ -11,6 +11,7 @@ import type {
   Paciente,
   Pagamento,
   Parceiro,
+  RegistroSessao,
   Responsavel,
   Sessao,
 } from '../dominio/tipos';
@@ -37,6 +38,7 @@ export interface SementeMemoria {
   sessoes?: Sessao[];
   bloqueios?: Bloqueio[];
   pagamentos?: Pagamento[];
+  registros?: RegistroSessao[];
 }
 
 const copia = <T>(valor: T): T => structuredClone(valor);
@@ -68,6 +70,9 @@ export function criarRepositorioMemoria(semente: SementeMemoria = {}): Repositor
   const bloqueios = tabela(semente.bloqueios);
   // Mesma ordem de leitura do banco: sessaoIds em ordem de id. A ordem de inserção do Map é a de criação.
   const pagamentos = tabela(semente.pagamentos?.map((p) => ({ ...p, sessaoIds: [...p.sessaoIds].sort() })));
+
+  // Um registro por sessão, guardado pelo id da sessão (a chave primária do banco).
+  const registros = new Map<Id, RegistroSessao>((semente.registros ?? []).map((r) => [r.sessaoId, copia(r)]));
 
   function gravar<T extends { id: Id }>(mapa: Map<Id, T>, r: Rascunho<T>): T {
     const salvo = { ...copia(r), id: r.id ?? crypto.randomUUID() } as T;
@@ -268,7 +273,11 @@ export function criarRepositorioMemoria(semente: SementeMemoria = {}): Repositor
       // Como o `on delete restrict` do banco: um lote com sessão paga não apaga nada.
       const pagas = sessoesPagas();
       if ([...apagar].some((id) => pagas.has(id))) throw new RecusaDoRepositorio(ERRO_SESSAO_PAGA_NAO_SAI);
-      for (const id of apagar) sessoes.delete(id);
+      for (const id of apagar) {
+        sessoes.delete(id);
+        // on delete cascade: o registro vai junto com a sessão.
+        registros.delete(id);
+      }
       for (const s of sessoes.values()) {
         if (s.remarcadaPara !== null && apagar.has(s.remarcadaPara)) s.remarcadaPara = null;
       }
@@ -302,6 +311,24 @@ export function criarRepositorioMemoria(semente: SementeMemoria = {}): Repositor
     },
     async removerPagamento(id) {
       pagamentos.delete(id);
+    },
+
+    async obterSessao(id) {
+      const sessao = sessoes.get(id);
+      return sessao ? comPaciente(sessao) : null;
+    },
+    async obterRegistro(sessaoId) {
+      const registro = registros.get(sessaoId);
+      return registro ? copia(registro) : null;
+    },
+    async salvarRegistro(sessaoId, dados) {
+      if (!sessoes.has(sessaoId)) throw new Error(`Sessão não encontrada: ${sessaoId}`);
+      const salvo: RegistroSessao = { ...copia(dados), sessaoId, atualizadoEm: new Date().toISOString() };
+      registros.set(sessaoId, salvo);
+      return copia(salvo);
+    },
+    async listarSessoesComRegistro(pacienteId) {
+      return [...registros.keys()].filter((id) => sessoes.get(id)?.pacienteId === pacienteId).sort();
     },
 
     async listarBloqueios() {

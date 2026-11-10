@@ -308,5 +308,20 @@ describe('sementeDemo: cobrança (hoje = 2026-11-02)', () => {
     expect(cobradas.some((s) => s.pacienteNome === 'Pedro Henrique Lima')).toBe(false);
     expect(cobradas.map((s) => s.inicio)).toEqual([...cobradas.map((s) => s.inicio)].sort());
   });
-});
 
+  it('Maria Luísa tem o registro da sessão de 22/10/2026, com os quatro campos e o texto falado', async () => {
+    const repo = criarRepositorioMemoria(semente);
+    const maria = paciente('Maria Luísa Costa');
+    const sessao = achar(
+      await repo.listarSessoesDoPaciente(maria.id),
+      (s) => dataLocal(s.inicio) === '2026-10-22',
+    );
+    const registro = await repo.obterRegistro(sessao.id);
+    expect(registro).not.toBeNull();
+    for (const campo of ['textoFalado', 'comoChegou', 'trabalhado', 'observacoes', 'proximosPassos'] as const) {
+      expect(registro?.[campo], campo).not.toBe('');
+    }
+    expect(await repo.listarSessoesComRegistro(maria.id)).toEqual([sessao.id]);
+    expect(semente.registros).toHaveLength(1);
+  });
+});

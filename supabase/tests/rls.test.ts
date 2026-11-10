@@ -12,6 +12,7 @@ const TABELAS = [
   'pagamento_sessoes',
   'pagamentos',
   'parceiros',
+  'registros_sessao',
   'responsaveis',
   'sessoes',
 ];

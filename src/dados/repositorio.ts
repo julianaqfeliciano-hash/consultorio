@@ -11,6 +11,7 @@ import type {
   Paciente,
   Pagamento,
   Parceiro,
+  RegistroSessao,
   Responsavel,
   Sessao,
 } from '../dominio/tipos';
@@ -113,6 +114,18 @@ export interface Repositorio {
   registrarPagamento(p: NovoPagamento): Promise<Pagamento>;
   /** Libera as sessões que ele quitava (ou desconta o que pagou do mês). Id que não existe não dá erro. */
   removerPagamento(id: Id): Promise<void>;
+
+  /** A sessão com o nome do paciente e o responsável principal, ou `null` quando não existe. */
+  obterSessao(id: Id): Promise<SessaoComPaciente | null>;
+  /** O registro da sessão, ou `null` enquanto não houver. */
+  obterRegistro(sessaoId: Id): Promise<RegistroSessao | null>;
+  /**
+   * Insere o registro da sessão ou substitui o que havia (um por sessão); `atualizadoEm` passa a ser agora.
+   * Rejeita quando a sessão não existe.
+   */
+  salvarRegistro(sessaoId: Id, dados: Omit<RegistroSessao, 'sessaoId' | 'atualizadoEm'>): Promise<RegistroSessao>;
+  /** Ids das sessões do paciente que já têm registro, em ordem de id. */
+  listarSessoesComRegistro(pacienteId: Id): Promise<Id[]>;
 
   /** Em ordem de início. */
   listarBloqueios(): Promise<Bloqueio[]>;

@@ -159,3 +159,19 @@ export interface HorarioComPaciente extends HorarioFixo {
   tipoPaciente: TipoAtendimento;
   avaliacaoId: Id | null;
 }
+
+/** Os quatro campos do registro de uma sessão. */
+export interface CamposRegistro {
+  comoChegou: string;
+  trabalhado: string;
+  observacoes: string;
+  proximosPassos: string;
+}
+
+/** O registro de uma sessão (no máximo um por sessão): os quatro campos e o texto ditado. */
+export interface RegistroSessao extends CamposRegistro {
+  sessaoId: Id;
+  textoFalado: string;
+  /** Instante UTC da última gravação, em ISO. */
+  atualizadoEm: string;
+}

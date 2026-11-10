@@ -13,6 +13,7 @@ import type {
   Parceiro,
   ReferenciaPagamento,
   Responsavel,
+  RegistroSessao,
   Sessao,
   SituacaoSessao,
   StatusPaciente,
@@ -131,6 +132,17 @@ export interface LinhaSessao {
   confirmada: boolean;
   observacao: string | null;
   valor_centavos: number | null;
+}
+
+export interface LinhaRegistro {
+  sessao_id: string;
+  texto_falado: string;
+  como_chegou: string;
+  trabalhado: string;
+  observacoes: string;
+  proximos_passos: string;
+  /** timestamptz: o Postgres devolve algo como '2026-11-03T17:00:00+00:00'. */
+  atualizado_em: string;
 }
 
 export interface LinhaBloqueio {
@@ -515,5 +527,37 @@ export function argumentosRegistrarPagamento(p: NovoPagamento) {
     p_mes_referencia: p.mesReferencia ?? null,
     p_avaliacao_id: p.avaliacaoId ?? null,
     p_sessao_ids: p.referencia === 'sessoes' ? [...p.sessaoIds] : [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Registro da sessão
+// ---------------------------------------------------------------------------
+
+/**
+ * A linha de `registros_sessao`. `atualizado_em` vai sempre no envio: o default `now()` só vale na
+ * inserção, e o upsert que substitui o registro precisa renovar a hora.
+ */
+export function registroParaLinha(r: RegistroSessao): LinhaRegistro {
+  return {
+    sessao_id: r.sessaoId,
+    texto_falado: r.textoFalado,
+    como_chegou: r.comoChegou,
+    trabalhado: r.trabalhado,
+    observacoes: r.observacoes,
+    proximos_passos: r.proximosPassos,
+    atualizado_em: r.atualizadoEm,
+  };
+}
+
+export function linhaParaRegistro(l: LinhaRegistro): RegistroSessao {
+  return {
+    sessaoId: l.sessao_id,
+    textoFalado: l.texto_falado,
+    comoChegou: l.como_chegou,
+    trabalhado: l.trabalhado,
+    observacoes: l.observacoes,
+    proximosPassos: l.proximos_passos,
+    atualizadoEm: lerInstante(l.atualizado_em),
   };
 }

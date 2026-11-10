@@ -7,6 +7,7 @@ import type {
   NovaSessao,
   NovoPagamento,
   Paciente,
+  RegistroSessao,
   Responsavel,
 } from '../dominio/tipos';
 import { chaveOcorrencia } from '../regras/agenda';
@@ -1038,6 +1039,94 @@ export function testarContrato(nome: string, fabrica: () => Promise<Repositorio>
     });
 
     // ---------------------------------------------------------------- bloqueios
+    // ---------------------------------------------------------------- registro da sessão
+    describe('registro da sessão', () => {
+      const camposRegistro = (sobre: Partial<Omit<RegistroSessao, 'sessaoId' | 'atualizadoEm'>> = {}) => ({
+        textoFalado: 'Brincou de casinha e falou do medo de dormir sozinha.',
+        comoChegou: 'Animada.',
+        trabalhado: 'Brincadeira simbólica.',
+        observacoes: 'Levou o desenho.',
+        proximosPassos: 'Retomar o sono.',
+        ...sobre,
+      });
+
+      it('salvarRegistro substitui o anterior e atualiza atualizadoEm', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente());
+        const sessao = await repo.criarSessao(sessaoNova(paciente.id));
+
+        const primeiro = await repo.salvarRegistro(sessao.id, camposRegistro());
+        expect(primeiro).toEqual({ ...camposRegistro(), sessaoId: sessao.id, atualizadoEm: primeiro.atualizadoEm });
+        expect(new Date(primeiro.atualizadoEm).toISOString()).toBe(primeiro.atualizadoEm);
+
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const segundo = await repo.salvarRegistro(sessao.id, camposRegistro({ trabalhado: 'Outro tema.', textoFalado: '' }));
+
+        expect(segundo).toEqual({
+          ...camposRegistro({ trabalhado: 'Outro tema.', textoFalado: '' }),
+          sessaoId: sessao.id,
+          atualizadoEm: segundo.atualizadoEm,
+        });
+        expect(Date.parse(segundo.atualizadoEm)).toBeGreaterThan(Date.parse(primeiro.atualizadoEm));
+        expect(await repo.obterRegistro(sessao.id)).toEqual(segundo);
+        expect(await repo.listarSessoesComRegistro(paciente.id)).toEqual([sessao.id]);
+      });
+
+      it('obterRegistro de sessão sem registro devolve null', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente());
+        const sessao = await repo.criarSessao(sessaoNova(paciente.id));
+        expect(await repo.obterRegistro(sessao.id)).toBeNull();
+        expect(await repo.obterRegistro(idInexistente())).toBeNull();
+      });
+
+      it('salvarRegistro de sessão inexistente rejeita', async () => {
+        const repo = await fabrica();
+        await expect(repo.salvarRegistro(idInexistente(), camposRegistro())).rejects.toThrow();
+      });
+
+      it('listarSessoesComRegistro só devolve as do paciente', async () => {
+        const repo = await fabrica();
+        const ana = await repo.salvarPaciente(rascunhoPaciente({ nome: 'Ana Registro' }));
+        const bia = await repo.salvarPaciente(rascunhoPaciente({ nome: 'Bia Registro' }));
+        const comRegistro = await repo.criarSessao(sessaoNova(ana.id, { inicio: instanteDe('2026-11-03', '14:00') }));
+        await repo.criarSessao(sessaoNova(ana.id, { inicio: instanteDe('2026-11-10', '14:00') }));
+        const dela = await repo.criarSessao(sessaoNova(bia.id));
+        await repo.salvarRegistro(comRegistro.id, camposRegistro());
+        await repo.salvarRegistro(dela.id, camposRegistro());
+
+        expect(await repo.listarSessoesComRegistro(ana.id)).toEqual([comRegistro.id]);
+        expect(await repo.listarSessoesComRegistro(bia.id)).toEqual([dela.id]);
+        expect(await repo.listarSessoesComRegistro(idInexistente())).toEqual([]);
+      });
+
+      it('apagar a sessão apaga o registro', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente());
+        const sessao = await repo.criarSessao(sessaoNova(paciente.id));
+        await repo.salvarRegistro(sessao.id, camposRegistro());
+        await repo.removerSessoes([sessao.id]);
+        expect(await repo.obterRegistro(sessao.id)).toBeNull();
+        expect(await repo.listarSessoesComRegistro(paciente.id)).toEqual([]);
+      });
+
+      it('obterSessao devolve pacienteNome e null para id inexistente', async () => {
+        const repo = await fabrica();
+        const paciente = await repo.salvarPaciente(rascunhoPaciente({ nome: 'Ana Obter' }));
+        await repo.salvarResponsavel(
+          rascunhoResponsavel(paciente.id, { nome: 'Mariana Teste', telefone: '(85) 90000-0001', principal: true }),
+        );
+        const sessao = await repo.criarSessao(sessaoNova(paciente.id));
+
+        expect(await repo.obterSessao(sessao.id)).toEqual({
+          ...sessao,
+          pacienteNome: 'Ana Obter',
+          responsavelPrincipal: { nome: 'Mariana Teste', telefone: '(85) 90000-0001' },
+        });
+        expect(await repo.obterSessao(idInexistente())).toBeNull();
+      });
+    });
+
     describe('bloqueios', () => {
       it('cria, lista por data, edita e remove', async () => {
         const repo = await fabrica();
