@@ -170,3 +170,36 @@ describe('criarAutenticacaoSupabase', () => {
     expect(subscription.unsubscribe).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('sair apaga os rascunhos', () => {
+  function armazenamentoFalso() {
+    const dados = new Map<string, string>([
+      ['consultorio:rascunho-registro:s1', '{}'],
+      ['consultorio:rascunho-registro:s2', '{}'],
+      ['outra', 'fica'],
+    ]);
+    vi.stubGlobal('localStorage', {
+      get length() {
+        return dados.size;
+      },
+      key: (i: number) => [...dados.keys()][i] ?? null,
+      getItem: (k: string) => dados.get(k) ?? null,
+      setItem: (k: string, v: string) => void dados.set(k, v),
+      removeItem: (k: string) => void dados.delete(k),
+    });
+    return dados;
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('na autenticação real', async () => {
+    const dados = armazenamentoFalso();
+    await criarAutenticacaoSupabase(clienteFalso().cliente).sair();
+    expect([...dados.keys()]).toEqual(['outra']);
+  });
+
+  it('na autenticação de demonstração', async () => {
+    const dados = armazenamentoFalso();
+    await criarAutenticacaoDemo().sair();
+    expect([...dados.keys()]).toEqual(['outra']);
+  });
+});

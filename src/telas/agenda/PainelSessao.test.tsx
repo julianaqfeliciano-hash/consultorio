@@ -1,3 +1,4 @@
+import { resumidorFalso } from '../../testes/resumidorFalso';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { criarRepositorioMemoria } from '../../dados/memoria';
@@ -31,7 +32,7 @@ function repositorioCom(sessao = sessaoExemplo(), paciente = pacienteExemplo({ d
 
 function abrirPainel(repositorio: Repositorio = repositorioCom(), semana: readonly [string, string] = SEMANA) {
   render(
-    <Provedores repositorio={repositorio} semNovasTentativas>
+    <Provedores repositorio={repositorio} resumidor={resumidorFalso()} semNovasTentativas>
       <Pai semana={semana} />
     </Provedores>,
   );

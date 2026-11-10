@@ -1,3 +1,4 @@
+import { resumidorFalso } from './testes/resumidorFalso';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { act, render, screen } from '@testing-library/react';
 import { useEffect } from 'react';
@@ -32,7 +33,7 @@ describe('Provedores', () => {
 
   it('dá aos filhos o repositório e um QueryClient', () => {
     render(
-      <Provedores repositorio={criarRepositorioMemoria()}>
+      <Provedores repositorio={criarRepositorioMemoria()} resumidor={resumidorFalso()}>
         <Sonda />
       </Provedores>,
     );
@@ -43,13 +44,13 @@ describe('Provedores', () => {
   it('cada montagem ganha um QueryClient novo (testes não compartilham cache)', () => {
     const repo = criarRepositorioMemoria();
     const primeira = render(
-      <Provedores repositorio={repo}>
+      <Provedores repositorio={repo} resumidor={resumidorFalso()}>
         <Sonda />
       </Provedores>,
     );
     primeira.unmount();
     render(
-      <Provedores repositorio={repo}>
+      <Provedores repositorio={repo} resumidor={resumidorFalso()}>
         <Sonda />
       </Provedores>,
     );
@@ -59,7 +60,7 @@ describe('Provedores', () => {
 
   it('semNovasTentativas desliga as tentativas automáticas', () => {
     render(
-      <Provedores repositorio={criarRepositorioMemoria()} semNovasTentativas>
+      <Provedores repositorio={criarRepositorioMemoria()} resumidor={resumidorFalso()} semNovasTentativas>
         <Sonda />
       </Provedores>,
     );
@@ -69,7 +70,7 @@ describe('Provedores', () => {
 
   it('por padrão mantém as tentativas automáticas do TanStack Query', () => {
     render(
-      <Provedores repositorio={criarRepositorioMemoria()}>
+      <Provedores repositorio={criarRepositorioMemoria()} resumidor={resumidorFalso()}>
         <Sonda />
       </Provedores>,
     );
@@ -83,7 +84,7 @@ describe('Provedores', () => {
     async function montarLogada() {
       const autenticacao = criarAutenticacaoFalsa({ usuario: USUARIA_DE_TESTE });
       render(
-        <Provedores repositorio={criarRepositorioMemoria()} autenticacao={autenticacao}>
+        <Provedores repositorio={criarRepositorioMemoria()} resumidor={resumidorFalso()} autenticacao={autenticacao}>
           <Sonda />
           <QuemEsta />
         </Provedores>,
@@ -127,7 +128,7 @@ describe('Provedores', () => {
     it('não esvazia só por estar sem login (nada a limpar, nada a perder)', async () => {
       const autenticacao = criarAutenticacaoFalsa();
       render(
-        <Provedores repositorio={criarRepositorioMemoria()} autenticacao={autenticacao}>
+        <Provedores repositorio={criarRepositorioMemoria()} resumidor={resumidorFalso()} autenticacao={autenticacao}>
           <Sonda />
           <QuemEsta />
         </Provedores>,

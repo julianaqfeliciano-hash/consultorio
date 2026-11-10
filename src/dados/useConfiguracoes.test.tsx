@@ -1,3 +1,4 @@
+import { resumidorFalso } from '../testes/resumidorFalso';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { CONFIGURACOES_PADRAO } from '../dominio/padroes';
@@ -8,7 +9,7 @@ import { useConfiguracoes } from './useConfiguracoes';
 
 function montar(repositorio: Repositorio) {
   const Envoltorio = ({ children }: { children: ReactNode }) => (
-    <Provedores repositorio={repositorio} semNovasTentativas>
+    <Provedores repositorio={repositorio} resumidor={resumidorFalso()} semNovasTentativas>
       {children}
     </Provedores>
   );
@@ -66,7 +67,7 @@ describe('useConfiguracoes', () => {
     const base = criarRepositorioMemoria();
     const repositorio = { ...base, salvarConfiguracoes: vi.fn(base.salvarConfiguracoes) };
     const Envoltorio = ({ children }: { children: ReactNode }) => (
-      <Provedores repositorio={repositorio} semNovasTentativas>
+      <Provedores repositorio={repositorio} resumidor={resumidorFalso()} semNovasTentativas>
         {children}
       </Provedores>
     );

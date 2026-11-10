@@ -3,10 +3,14 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Autenticacao } from './dados/autenticacao';
 import { AutenticacaoProvider, useAutenticacao } from './dados/contexto-autenticacao';
 import { RepositorioProvider } from './dados/contexto';
+import { ResumidorProvider } from './dados/contexto-resumidor';
 import type { Repositorio } from './dados/repositorio';
+import type { Resumidor } from './dados/resumidor';
 
 interface Props {
   repositorio: Repositorio;
+  /** Quem resume o texto ditado (Claude via Supabase, ou a demonstração). */
+  resumidor: Resumidor;
   /**
    * Quem entra e quem sai. O aplicativo (`main.tsx`) sempre informa. Se faltar, NÃO há provedor de
    * autenticação e `useAutenticacao` falha, em vez de liberar as telas por engano (só os testes que
@@ -45,6 +49,7 @@ function LimparCacheAoSair() {
  */
 export function Provedores({
   repositorio,
+  resumidor,
   autenticacao,
   modoDemonstracao = false,
   semNovasTentativas = false,
@@ -60,14 +65,16 @@ export function Provedores({
   return (
     <QueryClientProvider client={clienteDeConsultas}>
       <RepositorioProvider repositorio={repositorio}>
-        {autenticacao ? (
-          <AutenticacaoProvider autenticacao={autenticacao} modoDemonstracao={modoDemonstracao}>
-            <LimparCacheAoSair />
-            {children}
-          </AutenticacaoProvider>
-        ) : (
-          children
-        )}
+        <ResumidorProvider resumidor={resumidor}>
+          {autenticacao ? (
+            <AutenticacaoProvider autenticacao={autenticacao} modoDemonstracao={modoDemonstracao}>
+              <LimparCacheAoSair />
+              {children}
+            </AutenticacaoProvider>
+          ) : (
+            children
+          )}
+        </ResumidorProvider>
       </RepositorioProvider>
     </QueryClientProvider>
   );

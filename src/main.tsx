@@ -9,6 +9,7 @@ import { config } from './config';
 import { criarAutenticacaoDemo, criarAutenticacaoSupabase } from './dados/autenticacao';
 import { criarClienteSupabase } from './dados/clienteSupabase';
 import { criarRepositorioMemoria } from './dados/memoria';
+import { criarResumidorSupabase, resumidorDemonstracao } from './dados/resumidor';
 import { sementeDemo } from './dados/semente-demo';
 import { criarRepositorioSupabase } from './dados/supabase';
 import './estilo/global.css';
@@ -20,11 +21,12 @@ import { hojeISO } from './regras/datas';
 const cliente = criarClienteSupabase(config);
 const modoDemonstracao = cliente === null;
 const repositorio = cliente ? criarRepositorioSupabase(cliente) : criarRepositorioMemoria(sementeDemo(hojeISO()));
+const resumidor = cliente ? criarResumidorSupabase(cliente) : resumidorDemonstracao;
 const autenticacao = cliente ? criarAutenticacaoSupabase(cliente) : criarAutenticacaoDemo();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <Provedores repositorio={repositorio} autenticacao={autenticacao} modoDemonstracao={modoDemonstracao}>
+    <Provedores repositorio={repositorio} resumidor={resumidor} autenticacao={autenticacao} modoDemonstracao={modoDemonstracao}>
       <App />
     </Provedores>
   </StrictMode>,

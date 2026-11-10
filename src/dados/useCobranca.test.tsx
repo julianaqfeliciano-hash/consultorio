@@ -1,3 +1,4 @@
+import { resumidorFalso } from '../testes/resumidorFalso';
 import { useQueryClient } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -24,7 +25,7 @@ usarHojeFixo();
 
 function montar<T>(hook: () => T, repositorio: Repositorio = repositorioDemo()) {
   const Envoltorio = ({ children }: { children: ReactNode }) => (
-    <Provedores repositorio={repositorio} semNovasTentativas>
+    <Provedores repositorio={repositorio} resumidor={resumidorFalso()} semNovasTentativas>
       {children}
     </Provedores>
   );

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { apagarTodosOsRascunhos } from './rascunhos';
 
 export type Usuario = { id: string; email: string };
 
@@ -104,6 +105,8 @@ export function criarAutenticacaoSupabase(cliente: SupabaseClient): Autenticacao
       } catch (erro) {
         throw traduzirErroDeAutenticacao(erro);
       }
+      // Rascunho de registro é dado de paciente guardado no aparelho: não pode sobreviver ao "Sair".
+      apagarTodosOsRascunhos();
     },
     aoMudar(cb) {
       const {
@@ -122,7 +125,9 @@ export function criarAutenticacaoDemo(): Autenticacao {
     usuarioInicial: USUARIO_DEMO,
     usuarioAtual: async () => USUARIO_DEMO,
     entrar: async () => {},
-    sair: async () => {},
+    sair: async () => {
+      apagarTodosOsRascunhos();
+    },
     aoMudar: () => () => {},
   };
 }

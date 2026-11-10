@@ -5,7 +5,9 @@ import { RotasApp } from '../App';
 import { criarAutenticacaoDemo, type Autenticacao } from '../dados/autenticacao';
 import { criarRepositorioMemoria } from '../dados/memoria';
 import type { Repositorio } from '../dados/repositorio';
+import type { Resumidor } from '../dados/resumidor';
 import { Provedores } from '../Provedores';
+import { resumidorFalso } from './resumidorFalso';
 
 export interface OpcoesRenderComRotas {
   /**
@@ -13,6 +15,8 @@ export interface OpcoesRenderComRotas {
    * em memória vazio e novo.
    */
   repositorio?: Repositorio;
+  /** Resumidor da tela sob teste. Sem este, um falso que devolve campos fixos (`resumidorFalso()`). */
+  resumidor?: Resumidor;
   /**
    * Autenticação do teste. Sem esta, a usuária já está logada (`criarAutenticacaoDemo()`),
    * então as telas internas aparecem sem passar pelo login. Os testes de login passam uma falsa.
@@ -36,6 +40,7 @@ export function renderComRotas(caminho: string, opcoes: OpcoesRenderComRotas = {
   const {
     provedores: Extras,
     repositorio = criarRepositorioMemoria(),
+    resumidor = resumidorFalso(),
     autenticacao = criarAutenticacaoDemo(),
     modoDemonstracao = false,
   } = opcoes;
@@ -47,6 +52,7 @@ export function renderComRotas(caminho: string, opcoes: OpcoesRenderComRotas = {
   const resultado = render(
     <Provedores
       repositorio={repositorio}
+      resumidor={resumidor}
       autenticacao={autenticacao}
       modoDemonstracao={modoDemonstracao}
       semNovasTentativas
@@ -54,5 +60,5 @@ export function renderComRotas(caminho: string, opcoes: OpcoesRenderComRotas = {
       {Extras ? <Extras>{rotas}</Extras> : rotas}
     </Provedores>,
   );
-  return { ...resultado, repositorio };
+  return { ...resultado, repositorio, resumidor };
 }
