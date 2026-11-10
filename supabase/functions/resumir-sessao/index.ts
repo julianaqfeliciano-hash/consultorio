@@ -1,7 +1,10 @@
 // Edge Function `resumir-sessao`: recebe o relato da sessão (já com os nomes
 // trocados por marcadores) e devolve os quatro campos do registro, escritos
 // pelo Claude. Arquivo único, para colar no editor de funções do Supabase.
-// A verificação de JWT do Supabase fica ligada (padrão): só a dona chama.
+// A verificação de JWT do Supabase (`verify_jwt`) precisa ficar ligada: ela
+// confere a assinatura. Mas ela também aceita a chave pública anon do app, então
+// a função exige ainda `role === 'authenticated'` no token. Como o cadastro de
+// contas é fechado, só a dona tem um token assim.
 import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 
 // Tipo mínimo de `Deno`, só o que este arquivo usa.
@@ -16,7 +19,8 @@ type Codigo =
   | 'sem_chave'
   | 'recusa'
   | 'falha_claude'
-  | 'metodo';
+  | 'metodo'
+  | 'nao_autorizado';
 
 const STATUS: Record<Codigo, number> = {
   texto_vazio: 400,
@@ -25,6 +29,7 @@ const STATUS: Record<Codigo, number> = {
   recusa: 422,
   falha_claude: 502,
   metodo: 405,
+  nao_autorizado: 401,
 };
 
 const LIMITE_TEXTO = 20000;
@@ -68,12 +73,30 @@ function erro(codigo: Codigo): Response {
   return json({ erro: codigo }, STATUS[codigo]);
 }
 
+// Lê o papel do token sem verificar a assinatura (o gateway já verificou).
+function papelDoToken(req: Request): string | null {
+  const m = /^Bearer\s+(\S+)$/i.exec(req.headers.get('Authorization') ?? '');
+  const partes = m?.[1].split('.');
+  if (!partes || partes.length !== 3) return null;
+  try {
+    const b64 = partes[1].replace(/-/g, '+').replace(/_/g, '/');
+    const bruto = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '='));
+    const payload: unknown = JSON.parse(new TextDecoder().decode(Uint8Array.from(bruto, (c) => c.charCodeAt(0))));
+    const role = (payload as { role?: unknown } | null)?.role;
+    return typeof role === 'string' ? role : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function tratar(
   req: Request,
   deps: { cliente: Pick<Anthropic, 'beta'> | null; modelo: string },
 ): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'POST') return erro('metodo');
+
+  if (papelDoToken(req) !== 'authenticated') return erro('nao_autorizado');
 
   let texto = '';
   try {
@@ -103,7 +126,10 @@ export async function tratar(
     });
 
     if (resposta.stop_reason === 'refusal') return erro('recusa');
-    if (resposta.stop_reason === 'max_tokens') return erro('falha_claude');
+    if (resposta.stop_reason === 'max_tokens') {
+      console.error('resumir-sessao: max_tokens');
+      return erro('falha_claude');
+    }
 
     const bloco = resposta.content.find((b) => b.type === 'text');
     if (!bloco || bloco.type !== 'text') return erro('falha_claude');
@@ -121,7 +147,10 @@ export async function tratar(
       { comoChegou: como_chegou, trabalhado, observacoes, proximosPassos: proximos_passos },
       200,
     );
-  } catch {
+  } catch (e) {
+    // Só a classe do erro e o status vão para o log; nunca o texto.
+    const status = (e as { status?: unknown } | null)?.status;
+    console.error('resumir-sessao:', e instanceof Error ? e.constructor.name : typeof e, status ?? '');
     // Erro do SDK, de conexão ou JSON inválido. Nada do SDK vai para a resposta
     // e o texto da sessão nunca é registrado em log.
     return erro('falha_claude');

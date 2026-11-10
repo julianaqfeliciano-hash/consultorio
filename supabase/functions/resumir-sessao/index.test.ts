@@ -23,10 +23,19 @@ function montar(retorno: unknown = resposta()) {
   return { create, cliente };
 }
 
-function post(texto: unknown) {
+function jwt(payload: Record<string, unknown>) {
+  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  return `${b64({ alg: 'HS256', typ: 'JWT' })}.${b64(payload)}.assinatura`;
+}
+
+const LOGADA = jwt({ role: 'authenticated', sub: 'u1' });
+
+function post(texto: unknown, auth: string | null = `Bearer ${LOGADA}`) {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (auth !== null) headers.authorization = auth;
   return new Request('http://x/resumir-sessao', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers,
     body: JSON.stringify({ texto }),
   });
 }
@@ -50,6 +59,61 @@ describe('resumir-sessao', () => {
     expect(r.status).toBe(405);
     expect(await r.json()).toEqual({ erro: 'metodo' });
     expect(r.headers.get('Access-Control-Allow-Origin')).toBe('*');
+  });
+
+  it('sem Authorization devolve 401 nao_autorizado sem chamar o Claude', async () => {
+    const { cliente, create } = montar();
+    const r = await tratar(post('relato', null), { cliente, modelo: MODELO });
+    expect(r.status).toBe(401);
+    expect(await r.json()).toEqual({ erro: 'nao_autorizado' });
+    expect(r.headers.get('Access-Control-Allow-Origin')).toBe('*');
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('token anon (role anon) devolve 401', async () => {
+    const { cliente, create } = montar();
+    const r = await tratar(post('relato', `Bearer ${jwt({ role: 'anon' })}`), {
+      cliente,
+      modelo: MODELO,
+    });
+    expect(r.status).toBe(401);
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('token authenticated passa', async () => {
+    const { cliente } = montar();
+    const r = await tratar(post('relato'), { cliente, modelo: MODELO });
+    expect(r.status).toBe(200);
+  });
+
+  it('JWT malformado devolve 401', async () => {
+    const { cliente, create } = montar();
+    for (const auth of ['Bearer lixo', 'Bearer a.!!!.c', `Bearer a.${Buffer.from('[1]').toString('base64url')}.c`, 'Basic abc']) {
+      const r = await tratar(post('relato', auth), { cliente, modelo: MODELO });
+      expect(r.status).toBe(401);
+    }
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('corpo que não é JSON devolve 400 texto_vazio', async () => {
+    const { cliente } = montar();
+    const req = new Request('http://x', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${LOGADA}` },
+      body: 'não é json',
+    });
+    const r = await tratar(req, { cliente, modelo: MODELO });
+    expect(r.status).toBe(400);
+    expect(await r.json()).toEqual({ erro: 'texto_vazio' });
+  });
+
+  it('JSON com campo que não é string devolve 502 falha_claude', async () => {
+    const { cliente } = montar(
+      resposta({ content: [{ type: 'text', text: JSON.stringify({ ...CAMPOS, trabalhado: 3 }) }] }),
+    );
+    const r = await tratar(post('relato'), { cliente, modelo: MODELO });
+    expect(r.status).toBe(502);
+    expect(await r.json()).toEqual({ erro: 'falha_claude' });
   });
 
   it('texto vazio ou só espaços devolve 400 texto_vazio sem chamar o Claude', async () => {
