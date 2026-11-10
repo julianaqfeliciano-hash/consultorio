@@ -67,6 +67,51 @@ describe('anonimizar: casos de borda', () => {
   });
 });
 
+describe('anonimizar: grafias diferentes da ficha', () => {
+  it('"Luiza" para a paciente Luísa vira [P]', () => {
+    const p = { paciente: 'Maria Luísa Ferreira', responsaveis: [] };
+    expect(anonimizar('Maria Luiza chegou, Luiza estava bem', p).texto).toBe('[P] chegou, [P] estava bem');
+  });
+
+  it('"Tiago" para Thiago vira [P]', () => {
+    const p = { paciente: 'Thiago Lima', responsaveis: [] };
+    expect(anonimizar('Tiago veio', p).texto).toBe('[P] veio');
+  });
+
+  it('"Isabela" para Isabella vira [P]', () => {
+    const p = { paciente: 'Isabella Costa', responsaveis: [] };
+    expect(anonimizar('Isabela veio', p).texto).toBe('[P] veio');
+  });
+
+  it('o inverso também: a ficha sem o h e o texto com ele', () => {
+    const p = { paciente: 'Tiago', responsaveis: ['Rafaela Souza'] };
+    expect(anonimizar('Thiago e Raphaela Sousa', p).texto).toBe('[P] e [R1]');
+  });
+
+  it('mantém o resto do texto com as letras de origem', () => {
+    const p = { paciente: 'Luísa', responsaveis: [] };
+    expect(anonimizar('Ontem LUIZA, já à tarde.', p).texto).toBe('Ontem [P], já à tarde.');
+  });
+});
+
+describe('anonimizar: todas as palavras do nome', () => {
+  it('primeiro nome de 2 letras vira [P]', () => {
+    const p = { paciente: 'Lu Andrade', responsaveis: [] };
+    expect(anonimizar('a Lu chegou', p).texto).toBe('a [P] chegou');
+  });
+
+  it('"da" de "Ana da Silva" não é trocado sozinho', () => {
+    const p = { paciente: 'Ana da Silva', responsaveis: [] };
+    expect(anonimizar('veio da escola', p).texto).toBe('veio da escola');
+    expect(anonimizar('Ana da Silva veio', p).texto).toBe('[P] veio');
+  });
+
+  it('inicial de 1 letra não é trocada sozinha', () => {
+    const p = { paciente: 'Pedro H. Costa', responsaveis: [] };
+    expect(anonimizar('h de casa', p).texto).toBe('h de casa');
+  });
+});
+
 describe('restaurar', () => {
   it('restaura pelo primeiro nome e mantém o desconhecido', () => {
     const { mapa } = anonimizar('', pessoas);
@@ -79,7 +124,7 @@ describe('restaurar', () => {
       comoChegou: 'Ana veio com Marcos',
       trabalhado: '[R9]',
       observacoes: '',
-      proximosPassos: 'a família',
+      proximosPassos: 'família',
     });
   });
 });
